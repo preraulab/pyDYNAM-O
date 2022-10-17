@@ -1,0 +1,12 @@
+name: pyTOD
+channels:
+  - conda-forge
+dependencies:
+  - librosa
+  - matplotlib
+  - numpy
+  - pip
+  - python>=3.8
+  - scipy
+  - scikit-image
+  - tqdm
