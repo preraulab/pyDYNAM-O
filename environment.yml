@@ -10,3 +10,5 @@ dependencies:
   - scipy
   - scikit-image
   - tqdm
+  - pyedflib
+  - joblib
