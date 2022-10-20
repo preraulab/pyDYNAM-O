@@ -82,6 +82,48 @@ def merge_weight(graph_rag, src, dst, neighbor):
     return {'weight': n_weight}
 
 
+def trim_region(labelRAG, segment_data, region_num, trim_vol):
+    """
+    Computes the edge weight between two regions
+    NOTE: Weights must be flipped to be negative to match ascending hierarchical merging
+
+    :param labelRAG: numpy.ndarray
+    :param segment_data: tuple
+    :param region_num: skimage.future.graph.rag.RAG
+    """
+
+    # Get the region pixel values
+    reg_idx = list(zip(*labelRAG.nodes[region_num]["region"]))
+    reg_vals = np.sort(segment_data[reg_idx[0], reg_idx[1]])
+
+    # Find the cutoff for the volume
+    percent_vol = np.cumsum(reg_vals) / np.sum(reg_vals)
+    trim_idx = next(x for x, val in enumerate(percent_vol)
+                    if val > 1 - trim_vol)
+    trim_level = reg_vals[trim_idx]
+    rplot = labels_merged == region_num
+
+    # Slice at the trim level
+    img = np.logical_and(rplot, segment_data > trim_level)
+
+    # Fill all holes
+    img = morphology.remove_small_holes(img)
+
+    # Turn into a label image
+    label_img = measure.label(img)
+
+    # Select the largest region if there are subregions after trim
+    if np.max(label_img) > 1:
+        rp = measure.regionprops(trim_labels)
+        max_area_label = rp[np.argmax(list(ele.area for ele in rp))]["label"]
+        label_img = label_img == max_area_label
+    else:
+        label_img = label_img > 0
+
+    return label_img
+
+
+
 # Load in an image
 segment_data = imread('https://i.stack.imgur.com/nkQpj.png')
 
@@ -164,17 +206,17 @@ plt.suptitle('Initial Watershed Segmentation')
 
 # Plot pre-merged network (plot post-merge later)
 plt.figure(2)
-plt.subplot(121)
+plt.subplot(131)
 image_label_overlay = color.label2rgb(labels, image=segment_data, bg_label=0)
 plt.imshow(image_label_overlay)
 for region in props_original:
     y0, x0 = region.centroid_weighted
     plt.plot(x0, y0, 'ok', markersize=10, markerfacecolor="k", markeredgecolor="w")
     plt.text(x0-1, y0-1, region.label, size=20, color="k", bbox=dict(facecolor='white', edgecolor='none', alpha=0.5))
-    minr, minc, maxr, maxc = region.bbox
-    bx = (minc, maxc, maxc, minc, minc)
-    by = (minr, minr, maxr, maxr, minr)
-    plt.plot(bx, by, '-b', linewidth=2.5)
+    # minr, minc, maxr, maxc = region.bbox
+    # bx = (minc, maxc, maxc, minc, minc)
+    # by = (minr, minr, maxr, maxr, minr)
+    # plt.plot(bx, by, '-b', linewidth=2.5)
 
     for n in list(labelRAG.neighbors(region.label)):
         yn, xn = props_original[n - 1].centroid_weighted
@@ -208,17 +250,17 @@ plt.title('Original')
 props_all_merged = measure.regionprops(labels_merged, segment_data)
 
 # Plot post-merged network
-plt.subplot(122)
+plt.subplot(132)
 image_label_overlay = color.label2rgb(labels_merged, image=segment_data, bg_label=0)
 plt.imshow(image_label_overlay)
 for region in props_all_merged:
     y0, x0 = region.centroid_weighted
     plt.plot(x0, y0, 'ok', markersize=10, markerfacecolor="k", markeredgecolor="w")
     plt.text(x0-1, y0-1, region.label, size=20, color="k", bbox=dict(facecolor='white', edgecolor='none', alpha=0.5))
-    minr, minc, maxr, maxc = region.bbox
-    bx = (minc, maxc, maxc, minc, minc)
-    by = (minr, minr, maxr, maxr, minr)
-    plt.plot(bx, by, '-b', linewidth=2.5)
+    # minr, minc, maxr, maxc = region.bbox
+    # bx = (minc, maxc, maxc, minc, minc)
+    # by = (minr, minr, maxr, maxr, minr)
+    # plt.plot(bx, by, '-b', linewidth=2.5)
 
     for n in list(labelRAG.neighbors(region.label)):
         for p in props_all_merged:
@@ -251,6 +293,37 @@ print(' ')
 print('Final Edge Weights')
 for u, v, weight in labelRAG.edges.data("weight"):
     print(str(tuple([u, v])) + " weight = " + str(weight))
+
+
+
+
+# Trim volume
+trim_vol = 0.8
+
+# Set up the trim images
+trim_labels = np.zeros(segment_data.shape)
+for r in labelRAG.nodes:
+    trim_labels += trim_region(labelRAG, segment_data, r, trim_vol)
+
+trim_labels = measure.label(trim_labels)
+
+# Compute region properties for plotting
+props_all_trimmed = measure.regionprops(trim_labels, segment_data)
+
+# Plot post-merged network
+plt.subplot(133)
+image_label_overlay = color.label2rgb(trim_labels, image=segment_data, bg_label=0)
+plt.imshow(image_label_overlay)
+for region in props_all_trimmed:
+    y0, x0 = region.centroid_weighted
+    plt.plot(x0, y0, 'ok', markersize=10, markerfacecolor="k", markeredgecolor="w")
+    plt.text(x0-1, y0-1, region.label, size=20, color="k", bbox=dict(facecolor='white', edgecolor='none', alpha=0.5))
+    minr, minc, maxr, maxc = region.bbox
+    bx = (minc, maxc, maxc, minc, minc)
+    by = (minr, minr, maxr, maxr, minr)
+    plt.plot(bx, by, '-b', linewidth=2.5)
+
+plt.title('Trimmed')
 
 # Show Figures
 plt.show()
