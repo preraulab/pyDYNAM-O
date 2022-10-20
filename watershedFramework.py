@@ -3,7 +3,6 @@ from skimage import measure, segmentation, future, color, data, morphology
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-from scipy import interpolate as it
 
 
 def edge_weight(graph_rag, graph_edge, graph_data):
@@ -132,7 +131,7 @@ marked_bounds = segmentation.mark_boundaries(segment_data, labels, color=(1, 0, 
 # # Display region properties
 # print('Region Props:')
 # print(pd.DataFrame(props_table_original).to_string())
-# print(' ')
+# print(' ')c
 
 # Compute Region Properties
 props_original = measure.regionprops(labels, segment_data)
