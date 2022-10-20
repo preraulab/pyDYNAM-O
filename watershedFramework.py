@@ -51,6 +51,15 @@ def edge_weight(graph_rag, graph_edge, graph_data):
     return w
 
 
+def merge_regions(graph_rag, src, dst):
+    graph_rag.nodes[dst]["region"] = graph_rag.nodes[dst]["region"].union(graph_rag.nodes[src]["region"])
+    graph_rag.nodes[dst]["border"] = graph_rag.nodes[dst]["border"].symmetric_difference(graph_rag.nodes[src]["border"])
+
+
+def merge_weight(graph_rag, src, dst, n):
+    n_weight = edge_weight(graph_rag, list([dst, n]), img)
+    return {'weight': n_weight}
+
 
 # Load in an image
 img = imread('https://i.stack.imgur.com/nkQpj.png')
@@ -63,14 +72,18 @@ join_labels = segmentation.expand_labels(labels, distance=1)
 
 # Create a region adjacency graph based
 rag = future.graph.RAG(join_labels, connectivity=2)
+for n in rag.nodes():
+    rag.nodes[n]['labels'] = [n]
 
 # Get all border and region pixels
 for n in rag:
-    lregion = labels == n
+    lregion = (labels == n)
     bx, by = np.where(morphology.dilation(lregion, np.ones([3, 3])) & (labels == 0))
     border = set(zip(bx, by))
     rx, ry = np.where(lregion)
     region = set(zip(rx, ry))
+    for b in border:
+        region.add(b)
     rag.nodes[n]["border"] = border
     rag.nodes[n]["region"] = region
 
@@ -122,6 +135,7 @@ for n, (title, img_plt) in enumerate(plots.items()):
 plt.tight_layout()
 
 plt.figure(2)
+plt.subplot(121)
 image_label_overlay = color.label2rgb(labels, image=img, bg_label=0)
 plt.imshow(image_label_overlay)
 for region in props_all:
@@ -137,11 +151,58 @@ for region in props_all:
         plt.plot([x0, xn], [y0, yn], 'r-')
 
 # Plot the regions and borders of a region
-region_num = 3
-border = list(rag.nodes[region_num]["border"])
-region = list(rag.nodes[region_num]["region"])
-plt.plot(border[1], border[0], 'c.')
-plt.plot(region[1], region[0], 'rx')
-plt.tight_layout()
-plt.show()
+region_num = list(rag.nodes)[0]
+border = rag.nodes[region_num]["border"]
+region = rag.nodes[region_num]["region"]
 
+for r in region:
+    plt.plot(r[1], r[0], 'rx')
+
+for b in border:
+    plt.plot(b[1], b[0], 'c.')
+
+plt.tight_layout()
+
+future.graph.merge_hierarchical(labels, rag, -30000, False, True, weight_func=merge_weight, merge_func=merge_regions)
+
+label_merged = np.zeros(labels.shape, dtype=int)
+for n in rag:
+    for p in rag.nodes[n]["region"]:
+        label_merged[p] = n
+    for b in rag.nodes[n]["border"]:
+        label_merged[b] = 0
+plt.title('Original')
+
+props_all_merged = measure.regionprops(label_merged, img)
+
+plt.subplot(122)
+image_label_overlay = color.label2rgb(label_merged, image=img, bg_label=0)
+plt.imshow(image_label_overlay)
+for region in props_all_merged:
+    y0, x0 = region.centroid_weighted
+    plt.plot(x0, y0, '.m', markersize=15)
+    minr, minc, maxr, maxc = region.bbox
+    bx = (minc, maxc, maxc, minc, minc)
+    by = (minr, minr, maxr, maxr, minr)
+    plt.plot(bx, by, '-b', linewidth=2.5)
+
+    for n in list(rag.neighbors(region.label)):
+        for p in props_all_merged:
+            if p["label"] == n:
+                yn, xn = p.centroid_weighted
+                plt.plot([x0, xn], [y0, yn], 'r-')
+
+# Plot the regions and borders of a region
+region_num = list(rag.nodes)[0]
+border = rag.nodes[region_num]["border"]
+region = rag.nodes[region_num]["region"]
+
+for r in region:
+    plt.plot(r[1], r[0], 'rx')
+
+for b in border:
+    plt.plot(b[1], b[0], 'c.')
+
+plt.tight_layout()
+plt.title('Merged')
+plt.show()
