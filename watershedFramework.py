@@ -9,10 +9,11 @@ from scipy import interpolate as it
 def edge_weight(graph_rag, graph_edge, graph_data):
     """
     Computes the edge weight between two regions
+    NOTE: Weights must be flipped to be negative to match ascending hierarchical merging
 
-    :type graph_data: numpy.ndarray
-    :type graph_edge: tuple
-    :type graph_rag: skimage.future.graph.rag.RAG
+    :param graph_data: numpy.ndarray
+    :param graph_edge: tuple
+    :param graph_rag: skimage.future.graph.rag.RAG
     """
     i_border = graph_rag.nodes[graph_edge[0]]["border"]
     i_region = graph_rag.nodes[graph_edge[0]]["region"]
@@ -37,7 +38,9 @@ def edge_weight(graph_rag, graph_edge, graph_data):
     # w_ij = C_ji - D_ji = 2 * A_ij_max - B_j_min - i_max
     w_ji = 2 * A_ij_max - B_j_min - i_max
 
-    w = np.max([w_ij, w_ji])
+    # NOTE: WEIGHTS MUST BE NEGATIVE DUE TO HIERARCHICAL MERGE
+    # WHICH MERGES FROM LOW TO HIGH
+    w = -np.max([w_ij, w_ji])
     
     # print('Computing weight for edges ' + str(edge))
     # print("B_i_min: " + str(B_i_min))
@@ -52,76 +55,101 @@ def edge_weight(graph_rag, graph_edge, graph_data):
 
 
 def merge_regions(graph_rag, src, dst):
+    """
+    Merges the regions and borders for use in hierarchical merge
+
+    :param graph_rag: skimage.future.graph.rag.RAG
+    :param src: Source node
+    :param dst: Destination node
+    """
+    # Region is union of regions
     graph_rag.nodes[dst]["region"] = graph_rag.nodes[dst]["region"].union(graph_rag.nodes[src]["region"])
+    # Border is symmetric difference of borders
     graph_rag.nodes[dst]["border"] = graph_rag.nodes[dst]["border"].symmetric_difference(graph_rag.nodes[src]["border"])
 
 
-def merge_weight(graph_rag, src, dst, n):
-    n_weight = edge_weight(graph_rag, list([dst, n]), img)
+def merge_weight(graph_rag, src, dst, neighbor):
+    """
+    Computes weight for use in hierarchical merge
+
+    :param graph_rag: skimage.future.graph.rag.RAG
+    :param src: Source node (unused but required)
+    :param dst: Destination node (merged already)
+    :param neighbor: Neighbor node
+    """
+
+    # Convert weight to dictionary form
+    n_weight = edge_weight(graph_rag, list([dst, neighbor]), segment_data)
     return {'weight': n_weight}
 
 
 # Load in an image
-img = imread('https://i.stack.imgur.com/nkQpj.png')
+segment_data = imread('https://i.stack.imgur.com/nkQpj.png')
 
 # Run watershed segmentation with empty border regions
-labels = segmentation.watershed(-img, connectivity=2, watershed_line=True)
+labels = segmentation.watershed(-segment_data, connectivity=2, watershed_line=True)
 
-# Expand labels by 1 to join them
+# Expand labels by 1 to join them. This will be used to compute the RAG
 join_labels = segmentation.expand_labels(labels, distance=1)
 
 # Create a region adjacency graph based
-rag = future.graph.RAG(join_labels, connectivity=2)
-for n in rag.nodes():
-    rag.nodes[n]['labels'] = [n]
+labelRAG = future.graph.RAG(join_labels, connectivity=2)
+for n in labelRAG.nodes():
+    labelRAG.nodes[n]['labels'] = [n]
 
 # Get all border and region pixels
-for n in rag:
-    lregion = (labels == n)
-    bx, by = np.where(morphology.dilation(lregion, np.ones([3, 3])) & (labels == 0))
+for n in labelRAG:
+    curr_region = (labels == n)
+    bx, by = np.where(morphology.dilation(curr_region, np.ones([3, 3])) & (labels == 0))
+    rx, ry = np.where(curr_region)
+
+    # Zip into sets of tuples for easy set operations (e.g. intersection)
     border = set(zip(bx, by))
-    rx, ry = np.where(lregion)
     region = set(zip(rx, ry))
+
+    # Add border pixels to region
     for b in border:
         region.add(b)
-    rag.nodes[n]["border"] = border
-    rag.nodes[n]["region"] = region
 
-# Compute Sample Weight
-for edge in rag.edges:
-    weight = edge_weight(rag, edge, img)
-    rag.edges[edge]["weight"] = weight
+    # Set node properties
+    labelRAG.nodes[n]["border"] = border
+    labelRAG.nodes[n]["region"] = region
+
+# Compute the initial RAG weights
+for edge in labelRAG.edges:
+    weight = edge_weight(labelRAG, edge, segment_data)
+    labelRAG.edges[edge]["weight"] = weight
 
 # Show region boundaries with holes
-mbounds = segmentation.mark_boundaries(img, labels, color=(1, 0, 1), outline_color=None, mode='outer',
-                                       background_label=0)
+marked_bounds = segmentation.mark_boundaries(segment_data, labels, color=(1, 0, 1), outline_color=None, mode='outer',
+                                             background_label=0)
 
-# Compute the region properties table
-props = measure.regionprops_table(labels, img, properties=('centroid_weighted',
-                                                 'bbox',
-                                                 'intensity_min',
-                                                 'intensity_max'))
-# Display region properties
-print('Region Props:')
-print(pd.DataFrame(props).to_string())
-print(' ')
+# # TEST: Display the region properties table
+# props_table_original = measure.regionprops_table(labels, segment_data, properties=('centroid_weighted',
+#                                                  'bbox',
+#                                                  'intensity_min',
+#                                                  'intensity_max'))
+# # Display region properties
+# print('Region Props:')
+# print(pd.DataFrame(props_table_original).to_string())
+# print(' ')
 
-props_all = measure.regionprops(labels, img)
-
+# Compute Region Properties
+props_original = measure.regionprops(labels, segment_data)
 
 # Display RAG adjacency graph
-print('Adjacency Graph')
-for n in rag:
-    print("    Label " + str(n) + " connects to: " + str(list(rag.neighbors(n))))
+print('Initial Adjacency Graph')
+for n in labelRAG:
+    print("    Label " + str(n) + " connects to: " + str(list(labelRAG.neighbors(n))))
 print(' ')
 
 # Display unique edges
-print('Edge Weights')
-for u, v, weight in rag.edges.data("weight"):
+print('Initial Edge Weights')
+for u, v, weight in labelRAG.edges.data("weight"):
     print(str(tuple([u, v])) + " weight = " + str(weight))
 
-# Plot results
-plots = {'Original': img, 'Watershed Labels': labels, 'Joined Labels': join_labels, 'Overlay': mbounds}
+# Plot Initial Segmentation Results
+plots = {'Original': segment_data, 'Watershed Labels': labels, 'Joined Labels': join_labels, 'Overlay': marked_bounds}
 fig, ax = plt.subplots(1, len(plots))
 for n, (title, img_plt) in enumerate(plots.items()):
     cmap = plt.cm.gnuplot if n == len(plots) - 1 else plt.cm.gray
@@ -133,27 +161,29 @@ for n, (title, img_plt) in enumerate(plots.items()):
     ax[n].set_title(title)
 
 plt.tight_layout()
+plt.suptitle('Initial Watershed Segmentation')
 
+# Plot pre-merged network (plot post-merge later)
 plt.figure(2)
 plt.subplot(121)
-image_label_overlay = color.label2rgb(labels, image=img, bg_label=0)
+image_label_overlay = color.label2rgb(labels, image=segment_data, bg_label=0)
 plt.imshow(image_label_overlay)
-for region in props_all:
+for region in props_original:
     y0, x0 = region.centroid_weighted
-    plt.plot(x0, y0, '.m', markersize=15)
+    plt.plot(x0, y0, 'ok', markersize=10, markerfacecolor="k", markeredgecolor="w")
+    plt.text(x0-1, y0-1, region.label, size=20, color="k", bbox=dict(facecolor='white', edgecolor='none', alpha=0.5))
     minr, minc, maxr, maxc = region.bbox
     bx = (minc, maxc, maxc, minc, minc)
     by = (minr, minr, maxr, maxr, minr)
     plt.plot(bx, by, '-b', linewidth=2.5)
 
-    for n in list(rag.neighbors(region.label)):
-        yn, xn = props_all[n-1].centroid_weighted
+    for n in list(labelRAG.neighbors(region.label)):
+        yn, xn = props_original[n - 1].centroid_weighted
         plt.plot([x0, xn], [y0, yn], 'r-')
 
 # Plot the regions and borders of a region
-region_num = list(rag.nodes)[0]
-border = rag.nodes[region_num]["border"]
-region = rag.nodes[region_num]["region"]
+border = labelRAG.nodes[2]["border"]
+region = labelRAG.nodes[2]["region"]
 
 for r in region:
     plt.plot(r[1], r[0], 'rx')
@@ -163,39 +193,43 @@ for b in border:
 
 plt.tight_layout()
 
-future.graph.merge_hierarchical(labels, rag, -30000, False, True, weight_func=merge_weight, merge_func=merge_regions)
+# Perform hierarchical merging
+future.graph.merge_hierarchical(labels, labelRAG, 0, False, True, weight_func=merge_weight, merge_func=merge_regions)
 
-label_merged = np.zeros(labels.shape, dtype=int)
-for n in rag:
-    for p in rag.nodes[n]["region"]:
-        label_merged[p] = n
-    for b in rag.nodes[n]["border"]:
-        label_merged[b] = 0
+# Create a new label graph
+labels_merged = np.zeros(labels.shape, dtype=int)
+for n in labelRAG:
+    for p in labelRAG.nodes[n]["region"]:
+        labels_merged[p] = n
+    for b in labelRAG.nodes[n]["border"]:
+        labels_merged[b] = 0
 plt.title('Original')
 
-props_all_merged = measure.regionprops(label_merged, img)
+# Compute region properties for plotting
+props_all_merged = measure.regionprops(labels_merged, segment_data)
 
+# Plot post-merged network
 plt.subplot(122)
-image_label_overlay = color.label2rgb(label_merged, image=img, bg_label=0)
+image_label_overlay = color.label2rgb(labels_merged, image=segment_data, bg_label=0)
 plt.imshow(image_label_overlay)
 for region in props_all_merged:
     y0, x0 = region.centroid_weighted
-    plt.plot(x0, y0, '.m', markersize=15)
+    plt.plot(x0, y0, 'ok', markersize=10, markerfacecolor="k", markeredgecolor="w")
+    plt.text(x0-1, y0-1, region.label, size=20, color="k", bbox=dict(facecolor='white', edgecolor='none', alpha=0.5))
     minr, minc, maxr, maxc = region.bbox
     bx = (minc, maxc, maxc, minc, minc)
     by = (minr, minr, maxr, maxr, minr)
     plt.plot(bx, by, '-b', linewidth=2.5)
 
-    for n in list(rag.neighbors(region.label)):
+    for n in list(labelRAG.neighbors(region.label)):
         for p in props_all_merged:
             if p["label"] == n:
                 yn, xn = p.centroid_weighted
                 plt.plot([x0, xn], [y0, yn], 'r-')
 
 # Plot the regions and borders of a region
-region_num = list(rag.nodes)[0]
-border = rag.nodes[region_num]["border"]
-region = rag.nodes[region_num]["region"]
+border = labelRAG.nodes[4]["border"]
+region = labelRAG.nodes[4]["region"]
 
 for r in region:
     plt.plot(r[1], r[0], 'rx')
@@ -203,6 +237,21 @@ for r in region:
 for b in border:
     plt.plot(b[1], b[0], 'c.')
 
-plt.tight_layout()
+# plt.tight_layout()
 plt.title('Merged')
+plt.suptitle('Merging Process', size=25)
+
+
+# Display RAG adjacency graph
+print('Final Adjacency Graph')
+for n in labelRAG:
+    print("    Label " + str(n) + " connects to: " + str(list(labelRAG.neighbors(n))))
+print(' ')
+
+# Display unique edges
+print('Final Edge Weights')
+for u, v, weight in labelRAG.edges.data("weight"):
+    print(str(tuple([u, v])) + " weight = " + str(weight))
+
+# Show Figures
 plt.show()
