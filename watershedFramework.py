@@ -131,7 +131,7 @@ marked_bounds = segmentation.mark_boundaries(segment_data, labels, color=(1, 0, 
 # # Display region properties
 # print('Region Props:')
 # print(pd.DataFrame(props_table_original).to_string())
-# print(' ')c
+# print(' ')
 
 # Compute Region Properties
 props_original = measure.regionprops(labels, segment_data)
@@ -147,7 +147,7 @@ print('Initial Edge Weights')
 for u, v, weight in labelRAG.edges.data("weight"):
     print(str(tuple([u, v])) + " weight = " + str(weight))
 
-# Plot Initial Segmentation Results
+#  Plot Initial Segmentation Results
 plots = {'Original': segment_data, 'Watershed Labels': labels, 'Joined Labels': join_labels, 'Overlay': marked_bounds}
 fig, ax = plt.subplots(1, len(plots))
 for n, (title, img_plt) in enumerate(plots.items()):
