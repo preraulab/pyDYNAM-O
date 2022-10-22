@@ -3,9 +3,15 @@ from skimage import measure, segmentation, future, color, data, morphology
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+from operator import itemgetter
+from scipy.stats.distributions import chi2
 from multitaper_toolbox.python.multitaper_spectrogram_python import \
     multitaper_spectrogram  # import multitaper_spectrogram function from the multitaper_spectrogram_python.py file
 
+
+def pow2db(val):
+    val_dB = (10 * np.log10(val) + 300) - 300
+    return val_dB
 
 def plot_node(graph_rag, node_num):
     for i in graph_rag.nodes[node_num]["border"]:
@@ -163,8 +169,9 @@ data = np.array(csv_data[0])
 # Set spectrogram params
 fs = 100  # Sampling Frequency
 frequency_range = [0, 30]  # Limit frequencies from 0 to 25 Hz
-time_bandwidth = 2  # Set time-half bandwidth
-num_tapers = 3  # Set number of tapers (optimal is time_bandwidth*2 - 1)
+taper_params = [2, 3] # Set taper params
+time_bandwidth = taper_params[0] # Set time-half bandwidth
+num_tapers = taper_params[1]  # Set number of tapers (optimal is time_bandwidth*2 - 1)
 window_params = [1, .05]  # Window size is 4s with step size of 1s
 min_nfft = 2 ** 10  # NFFT
 detrend_opt = 'constant'  # detrend each window by subtracting the average
@@ -176,18 +183,32 @@ clim_scale = False  # do not auto-scale colormap
 verbose = True  # print extra info
 xyflip = False  # do not transpose spect output matrix
 
-# Generate sample chirp data
-t = np.arange(1 / fs, 600, 1 / fs)  # Create 10 min time array from 1/fs to 600 stepping by 1/fs
-f_start = 1  # Set chirp freq range min (Hz)
-f_end = 20  # Set chirp freq range max (Hz)
-# data = chirp(t, f_start, t[-1], f_end, 'logarithmic')
+# MTS frequency resolution
+df = taper_params[0]/window_params[0]*2
+
+# Set min duration and bandwidth based on spectral parameters
+dur_min = window_params[0]/2
+bw_min = df/2
+
+# Max duration and bandwidth are set to be large values
+dur_max = 5
+bw_max = 15
+
+# Set minimal peak height based on confidence interval lower bound of MTS
+chi2_df = 2 * taper_params[1]
+alpha = 0.95
+ht_db_min = -pow2db(chi2_df / chi2.ppf(alpha/2 + 0.5, chi2_df)) * 2
 
 # Compute the multitaper spectrogram
 spect, stimes, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers, window_params,
                                                min_nfft, detrend_opt, multiprocess, cpus,
                                                weighting, plot_on, clim_scale, verbose, xyflip)
 
-baseline = np.percentile(spect, 0, axis=1, keepdims=True)
+# Define spectral coords dx dy
+d_time = stimes[1]-stimes[0]
+d_freq = sfreqs[1]-sfreqs[0]
+
+baseline = np.percentile(spect, 3, axis=1, keepdims=True)
 
 segment_data = np.divide(spect, baseline)
 # plt.figure(1)
@@ -293,7 +314,7 @@ while max_val > 8:
 #                                 merge_func=merge_regions,
 #                                 weight_func=merge_weight)
 
-# Create a new label graph
+# Create a new label image
 labels_merged = np.zeros(labels.shape, dtype=int)
 for n in labelRAG:
     for p in labelRAG.nodes[n]["region"]:
@@ -320,10 +341,20 @@ props_all_merged = measure.regionprops(labels_merged, segment_data)
 # Trim volume
 trim_vol = 0.8
 
+print('Trimming...')
+
 # Set up the trim images
 trim_labels = np.zeros(segment_data.shape)
 for r in labelRAG.nodes:
-    trim_labels += trim_region(labelRAG, segment_data, r, trim_vol)
+    # Get the values of the merged nodes
+    r_border = list(zip(*labelRAG.nodes[r]["border"]))
+    # Compute bandwidth and duration
+    bw = (np.max(r_border[0])-np.min(r_border[0])) * d_freq
+    dur = (np.max(r_border[1])-np.min(r_border[1])) * d_time
+
+    # Only trim if within parameters
+    if (bw >= bw_min) & (dur >= dur_min):
+        trim_labels += trim_region(labelRAG, segment_data, r, trim_vol)
 
 trim_labels = measure.label(trim_labels)
 
