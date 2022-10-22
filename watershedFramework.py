@@ -178,16 +178,16 @@ marked_bounds = segmentation.mark_boundaries(segment_data, labels, color=(1, 0, 
 # Compute Region Properties
 props_original = measure.regionprops(labels, segment_data)
 
-# Display RAG adjacency graph
-print('Initial Adjacency Graph')
-for n in labelRAG:
-    print("    Label " + str(n) + " connects to: " + str(list(labelRAG.neighbors(n))))
-print(' ')
-
-# Display unique edges
-print('Initial Edge Weights')
-for u, v, weight in labelRAG.edges.data("weight"):
-    print(str(tuple([u, v])) + " weight = " + str(weight))
+# # Display RAG adjacency graph
+# print('Initial Adjacency Graph')
+# for n in labelRAG:
+#     print("    Label " + str(n) + " connects to: " + str(list(labelRAG.neighbors(n))))
+# print(' ')
+#
+# # Display unique edges
+# print('Initial Edge Weights')
+# for u, v, weight in labelRAG.edges.data("weight"):
+#     print(str(tuple([u, v])) + " weight = " + str(weight))
 
 #  Plot Initial Segmentation Results
 plots = {'Original': segment_data, 'Watershed Labels': labels, 'Joined Labels': join_labels, 'Overlay': marked_bounds}
@@ -282,19 +282,16 @@ for b in border:
 plt.title('Merged')
 plt.suptitle('Merging Process', size=25)
 
-
-# Display RAG adjacency graph
-print('Final Adjacency Graph')
-for n in labelRAG:
-    print("    Label " + str(n) + " connects to: " + str(list(labelRAG.neighbors(n))))
-print(' ')
-
-# Display unique edges
-print('Final Edge Weights')
-for u, v, weight in labelRAG.edges.data("weight"):
-    print(str(tuple([u, v])) + " weight = " + str(weight))
-
-
+# # Display RAG adjacency graph
+# print('Final Adjacency Graph')
+# for n in labelRAG:
+#     print("    Label " + str(n) + " connects to: " + str(list(labelRAG.neighbors(n))))
+# print(' ')
+#
+# # Display unique edges
+# print('Final Edge Weights')
+# for u, v, weight in labelRAG.edges.data("weight"):
+#     print(str(tuple([u, v])) + " weight = " + str(weight))
 
 
 # Trim volume
