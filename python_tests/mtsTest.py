@@ -6,7 +6,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 # reading the CSV file
-csv_data = pd.read_csv('data.csv', header=None)
+csv_data = pd.read_csv('../data.csv', header=None)
 data = np.array(csv_data[0])
 
 # Set spectrogram params

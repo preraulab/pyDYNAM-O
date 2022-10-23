@@ -1,29 +1,42 @@
+import numpy
+import skimage.future.graph
 from skimage.io import imread, imshow
 from skimage import measure, segmentation, future, color, data, morphology
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
-from operator import itemgetter
+import timeit
 from scipy.stats.distributions import chi2
 from multitaper_toolbox.python.multitaper_spectrogram_python import \
     multitaper_spectrogram  # import multitaper_spectrogram function from the multitaper_spectrogram_python.py file
 
 
 def pow2db(val):
+    """
+    Converts power to dB
+    :param val: values to convert
+    :return: val_dB value in dB
+    """
     val_dB = (10 * np.log10(val) + 300) - 300
     return val_dB
 
+
 def plot_node(graph_rag, node_num):
+    """
+    Plots a node
+    :param graph_rag: RAG graph
+    :param node_num: Node number
+    """
     for i in graph_rag.nodes[node_num]["border"]:
         plt.plot(i[1], i[0], 'kx')
     for i in graph_rag.nodes[node_num]["region"]:
         plt.plot(i[1], i[0], 'b.')
 
 
-def edge_weight(graph_rag, graph_edge, graph_data):
+
+def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: numpy.ndarray) -> float:
     """
     Computes the edge weight between two regions
-    NOTE: Weights must be flipped to be negative to match ascending hierarchical merging
 
     :param graph_data: numpy.ndarray
     :param graph_edge: tuple
@@ -85,7 +98,7 @@ def edge_weight(graph_rag, graph_edge, graph_data):
     return w_max
 
 
-def merge_regions(graph_rag, src, dst):
+def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     """
     Merges the regions and borders for use in hierarchical merge
 
@@ -101,10 +114,12 @@ def merge_regions(graph_rag, src, dst):
 
 
 # NOTE: Is there a better way to get segment_data into this other than making it global?
-def merge_weight(graph_rag, src, dst, neighbor):
+def merge_weight(graph_rag, src, dst, neighbor) -> dict:
     """
     Computes weight for use in hierarchical merge
 
+    :rtype dict
+    :return Weight between src and neighbors
     :param graph_rag: skimage.future.graph.rag.RAG
     :param src: Source node (unused but required)
     :param dst: Destination node (merged already)
@@ -112,20 +127,24 @@ def merge_weight(graph_rag, src, dst, neighbor):
     """
 
     # Convert weight output to dictionary form
-    n_weight = edge_weight(graph_rag, list([dst, neighbor]), segment_data)
+    n_weight = edge_weight(graph_rag, tuple([dst, neighbor]), segment_data)
     # print('   ' + str(list([dst, neighbor])) + ' new weight: ' + str(n_weight))
     return {'weight': n_weight}
 
 
-def trim_region(graph_rag, graph_data, region_num, trim_volume):
+def trim_region(graph_rag: skimage.future.graph.RAG, graph_data: numpy.ndarray, region_num: int, trim_volume: float):
     """
     Computes the edge weight between two regions
     NOTE: Weights must be flipped to be negative to match ascending hierarchical merging
 
-    :param trim_volume:
-    :param graph_rag: numpy.ndarray
-    :param graph_data: tuple
-    :param region_num: skimage.future.graph.rag.RAG
+    :param trim_volume: Percentage to trim
+    :type: float
+    :param graph_rag: RAG
+    :type graph_rag: skimage.future.graph.rag.RAG
+    :param graph_data: Spectrogram data
+    :type graph_data: numpy.ndarray
+    :param region_num: Region number
+    :type region_num: int
     """
 
     # Get the region pixel values
@@ -259,7 +278,7 @@ for n in labelRAG:
     labelRAG.nodes[n]["region"] = region
 
 print('Computing weights...')
-
+tic = timeit.default_timer()
 # Compute the initial RAG weights
 for edge in labelRAG.edges:
     weight = edge_weight(labelRAG, edge, segment_data)
@@ -270,7 +289,8 @@ for edge in labelRAG.edges:
     else:
         labelRAG.edges[edge]["weight"] = weight
         # print('Edge ' + str(edge) + ' weight: ' + str(weight))
-
+toc = timeit.default_timer()
+print(f'      Weights took {toc-tic:.3f}s')
 # # Show region boundaries with holes
 # marked_bounds = segmentation.mark_boundaries(segment_data, labels, color=(1, 0, 1), outline_color=None, mode='outer',
 #                                              background_label=0)
@@ -293,7 +313,7 @@ props_original = measure.regionprops(labels, segment_data)
 print('Starting merge...')
 
 max_val = np.inf
-
+tic = timeit.default_timer()
 while max_val > 8:
     all_weights = [labelRAG.edges[i]["weight"] for i in labelRAG.edges]
     max_idx = np.argmax(all_weights)
@@ -307,7 +327,8 @@ while max_val > 8:
     # Border is symmetric difference of borders
     labelRAG.nodes[dst]["border"] = labelRAG.nodes[dst]["border"].symmetric_difference(labelRAG.nodes[src]["border"])
     labelRAG.merge_nodes(src, dst, merge_weight)
-
+toc = timeit.default_timer()
+print(f'      Merging took {toc-tic:.3f}s')
 # # Perform hierarchical merging
 # future.graph.merge_hierarchical(labels, labelRAG, thresh=-29, rag_copy=False,
 #                                 in_place_merge=True,
@@ -342,24 +363,31 @@ props_all_merged = measure.regionprops(labels_merged, segment_data)
 trim_vol = 0.8
 
 print('Trimming...')
-
+tic = timeit.default_timer()
 # Set up the trim images
 trim_labels = np.zeros(segment_data.shape)
 for r in labelRAG.nodes:
     # Get the values of the merged nodes
     r_border = list(zip(*labelRAG.nodes[r]["border"]))
+    r_region = list(zip(*labelRAG.nodes[r]["region"]))
+
     # Compute bandwidth and duration
     bw = (np.max(r_border[0])-np.min(r_border[0])) * d_freq
     dur = (np.max(r_border[1])-np.min(r_border[1])) * d_time
 
+    data_vals = segment_data[r_region[0], r_region[1]]
+    height = pow2db(max(data_vals) - min(data_vals))
+
     # Only trim if within parameters
-    if (bw >= bw_min) & (dur >= dur_min):
+    if (bw >= bw_min) & (dur >= dur_min) & (height >= ht_db_min):
         trim_labels += trim_region(labelRAG, segment_data, r, trim_vol)
 
 trim_labels = measure.label(trim_labels)
 
 # Compute region properties for plotting
 props_all_trimmed = measure.regionprops(trim_labels, segment_data)
+toc = timeit.default_timer()
+print(f'      Trimming took {toc-tic:.3f}s')
 
 # Table for data
 stats_table = pd.DataFrame(measure.regionprops_table(trim_labels, segment_data, properties=('centroid_weighted',
@@ -367,9 +395,9 @@ stats_table = pd.DataFrame(measure.regionprops_table(trim_labels, segment_data, 
                                                                                             'intensity_min',
                                                                                             'intensity_max')))
 # Display region properties
-print('Region Props:')
-print(stats_table.to_string())
-print(' ')
+# print('Region Props:')
+# print(stats_table.to_string())
+# print(' ')
 
 
 # Plot post-merged network
