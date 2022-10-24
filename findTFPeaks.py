@@ -407,7 +407,7 @@ print(' ')
 img_extent = 0, list(segment_data.shape)[1] * d_time, list(segment_data.shape)[0] * d_freq, 0
 
 plt.subplot(141)
-plt.imshow(np.log(segment_data), extent=img_extent)
+plt.imshow(np.log(segment_data), extent=img_extent, cmap='jet')
 plt.gca().invert_yaxis()
 plt.xlabel('Time (s)')
 plt.ylabel('Frequency (Hz)')
