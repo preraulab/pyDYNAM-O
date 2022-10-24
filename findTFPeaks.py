@@ -404,10 +404,10 @@ print(stats_table.to_string())
 print(' ')
 
 # Plot post-merged network
-extent = np.min(stimes), np.max(stimes), np.max(sfreqs), np.min(sfreqs)
+img_extent = 0, list(segment_data.shape)[1] * d_time, list(segment_data.shape)[0] * d_freq, 0
 
 plt.subplot(141)
-plt.imshow(np.log(segment_data))
+plt.imshow(np.log(segment_data), extent=img_extent)
 plt.gca().invert_yaxis()
 plt.xlabel('Time (s)')
 plt.ylabel('Frequency (Hz)')
@@ -415,7 +415,7 @@ plt.title('Spectrogram')
 
 plt.subplot(142)
 image_label_overlay = color.label2rgb(labels, bg_label=0)
-plt.imshow(image_label_overlay, extent=extent)
+plt.imshow(image_label_overlay, extent=img_extent)
 plt.gca().invert_yaxis()
 plt.xlabel('Time (s)')
 plt.ylabel('Frequency (Hz)')
@@ -423,19 +423,22 @@ plt.title('Original Regions')
 
 plt.subplot(143)
 image_label_overlay = color.label2rgb(labels_merged, bg_label=0)
-plt.imshow(image_label_overlay, extent=extent)
+plt.imshow(image_label_overlay, extent=img_extent)
 plt.gca().invert_yaxis()
 plt.xlabel('Time (s)')
 plt.ylabel('Frequency (Hz)')
 plt.title('Merged Regions')
 
 plt.subplot(144)
-image_label_overlay = color.label2rgb(filtered_labels, bg_label=0)
-plt.imshow(image_label_overlay, extent=extent)
+image_label_overlay = color.label2rgb(filtered_labels,  bg_label=0)
+plt.imshow(image_label_overlay, extent=img_extent)
 plt.gca().invert_yaxis()
 plt.xlabel('Time (s)')
 plt.ylabel('Frequency (Hz)')
 plt.title('Trimmed/Filtered Regions')
+
+for index, row in stats_table.iterrows():
+    plt.plot(row['peak_time'], row['peak_frequency'], 'm.')
 
 # Show Figures
 plt.show()
