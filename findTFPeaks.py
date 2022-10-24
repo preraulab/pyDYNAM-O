@@ -342,7 +342,7 @@ for n in labelRAG:
         labels_merged[p] = n
     for b in labelRAG.nodes[n]["border"]:
         labels_merged[b] = 0
-plt.title('Original')
+# plt.title('Original')
 
 # Compute region properties for plotting
 props_all_merged = measure.regionprops(labels_merged, segment_data)
@@ -390,14 +390,31 @@ toc = timeit.default_timer()
 print(f'      Trimming took {toc-tic:.3f}s')
 
 # Table for data
+print('Building stats table')
+tic = timeit.default_timer()
 stats_table = pd.DataFrame(measure.regionprops_table(trim_labels, segment_data, properties=('centroid_weighted',
                                                                                             'bbox',
                                                                                             'intensity_min',
-                                                                                            'intensity_max')))
+                                                                                             'intensity_max')))
+stats_table['prominence'] = stats_table.intensity_max - stats_table.intensity_min
+minr = stats_table['bbox-0']
+minc = stats_table['bbox-1']
+maxr = stats_table['bbox-2']
+maxc = stats_table['bbox-3']
+
+stats_table['duration'] = (maxc - minc)*d_time
+stats_table['bandwidth'] = (maxr - minr)*d_freq
+
+stats_table['peak_time'] = stats_table['centroid_weighted-1']*d_time
+stats_table['peak_frequency'] = stats_table['centroid_weighted-0']*d_freq
+
+toc = timeit.default_timer()
+print(f'      Stats table took {toc-tic:.3f}s')
+
 # Display region properties
-# print('Region Props:')
-# print(stats_table.to_string())
-# print(' ')
+print('Stats table:')
+print(stats_table.to_string())
+print(' ')
 
 
 # Plot post-merged network
