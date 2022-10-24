@@ -385,6 +385,8 @@ stats_table['bandwidth'] = (maxr - minr) * d_freq
 
 stats_table['peak_time'] = stats_table['centroid_weighted-1'] * d_time
 stats_table['peak_frequency'] = stats_table['centroid_weighted-0'] * d_freq
+stats_table['volume'] = [np.sum(segment_data[np.where(trim_labels == i)])*d_time*d_freq for i in stats_table['label']]
+
 
 # Query stats table for final results
 stats_table = stats_table.query('duration>@dur_min & duration<@dur_max & bandwidth>@bw_min & bandwidth<@bw_max & '
