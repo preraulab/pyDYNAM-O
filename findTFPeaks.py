@@ -369,10 +369,11 @@ print(f'      Trimming took {toc - tic:.3f}s')
 # Table for data
 print('Building stats table')
 tic = timeit.default_timer()
-stats_table = pd.DataFrame(measure.regionprops_table(trim_labels, segment_data, properties=('centroid_weighted',
+stats_table = pd.DataFrame(measure.regionprops_table(trim_labels, segment_data, properties=('label',
+                                                                                            'centroid_weighted',
                                                                                             'bbox',
                                                                                             'intensity_min',
-                                                                                            'intensity_max', 'label')))
+                                                                                            'intensity_max')))
 stats_table['prominence'] = stats_table['intensity_max'] - stats_table['intensity_min']
 minr = stats_table['bbox-0']
 minc = stats_table['bbox-1']
