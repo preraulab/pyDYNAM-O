@@ -33,7 +33,6 @@ def plot_node(graph_rag, node_num):
         plt.plot(i[1], i[0], 'b.')
 
 
-
 def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: numpy.ndarray) -> float:
     """
     Computes the edge weight between two regions
@@ -177,25 +176,21 @@ def trim_region(graph_rag: skimage.future.graph.RAG, graph_data: numpy.ndarray, 
 
     return label_img
 
-
-# Load in an image
-# segment_data = imread('https://i.stack.imgur.com/nkQpj.png')
-
 # reading the CSV file
 csv_data = pd.read_csv('data.csv', header=None)
-data = np.array(csv_data[0])
+data_csv = np.array(csv_data[0])
 
 # Set spectrogram params
 fs = 100  # Sampling Frequency
 frequency_range = [0, 30]  # Limit frequencies from 0 to 25 Hz
-taper_params = [2, 3] # Set taper params
-time_bandwidth = taper_params[0] # Set time-half bandwidth
+taper_params = [2, 3]  # Set taper params
+time_bandwidth = taper_params[0]  # Set time-half bandwidth
 num_tapers = taper_params[1]  # Set number of tapers (optimal is time_bandwidth*2 - 1)
 window_params = [1, .05]  # Window size is 4s with step size of 1s
 min_nfft = 2 ** 10  # NFFT
-detrend_opt = 'constant'  # detrend each window by subtracting the average
+detrend_opt = 'constant'  # constant detrend
 multiprocess = True  # use multiprocessing
-cpus = 4  # use 3 cores in multiprocessing
+cpus = 4  # use 4 cores in multiprocessing
 weighting = 'unity'  # weight each taper at 1
 plot_on = False  # plot spectrogram
 clim_scale = False  # do not auto-scale colormap
@@ -203,11 +198,11 @@ verbose = True  # print extra info
 xyflip = False  # do not transpose spect output matrix
 
 # MTS frequency resolution
-df = taper_params[0]/window_params[0]*2
+df = taper_params[0] / window_params[0] * 2
 
 # Set min duration and bandwidth based on spectral parameters
-dur_min = window_params[0]/2
-bw_min = df/2
+dur_min = window_params[0] / 2
+bw_min = df / 2
 
 # Max duration and bandwidth are set to be large values
 dur_max = 5
@@ -216,43 +211,25 @@ bw_max = 15
 # Set minimal peak height based on confidence interval lower bound of MTS
 chi2_df = 2 * taper_params[1]
 alpha = 0.95
-ht_db_min = -pow2db(chi2_df / chi2.ppf(alpha/2 + 0.5, chi2_df)) * 2
+prom_min = -pow2db(chi2_df / chi2.ppf(alpha / 2 + 0.5, chi2_df)) * 2
 
 # Compute the multitaper spectrogram
-spect, stimes, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers, window_params,
+spect, stimes, sfreqs = multitaper_spectrogram(data_csv, fs, frequency_range, time_bandwidth, num_tapers, window_params,
                                                min_nfft, detrend_opt, multiprocess, cpus,
                                                weighting, plot_on, clim_scale, verbose, xyflip)
 
 # Define spectral coords dx dy
-d_time = stimes[1]-stimes[0]
-d_freq = sfreqs[1]-sfreqs[0]
+d_time = stimes[1] - stimes[0]
+d_freq = sfreqs[1] - sfreqs[0]
 
 baseline = np.percentile(spect, 3, axis=1, keepdims=True)
 
 segment_data = np.divide(spect, baseline)
-# plt.figure(1)
-# plt.plot(baseline)
-#
-# plt.figure(2)
-# extent = np.min(stimes), np.max(stimes), np.max(sfreqs), np.min(sfreqs)
-# plt.imshow(segment_data, extent=extent)
-# plt.gca().invert_yaxis()
-#
-# plt.show()
-
 # Run watershed segmentation with empty border regions
 labels = segmentation.watershed(-segment_data, connectivity=2, watershed_line=True)
 
 # Expand labels by 1 to join them. This will be used to compute the RAG
 join_labels = segmentation.expand_labels(labels, distance=10)
-
-# plt.subplot(121)
-# image_label_overlay = color.label2rgb(labels, image=segment_data, bg_label=0, alpha=1)
-# plt.imshow(image_label_overlay)
-# plt.subplot(122)
-# image_label_overlay = color.label2rgb(join_labels, image=segment_data, bg_label=0, alpha=1)
-# plt.imshow(image_label_overlay)
-# plt.show()
 
 # Create a region adjacency graph based
 labelRAG = future.graph.RAG(join_labels, connectivity=2)
@@ -290,7 +267,7 @@ for edge in labelRAG.edges:
         labelRAG.edges[edge]["weight"] = weight
         # print('Edge ' + str(edge) + ' weight: ' + str(weight))
 toc = timeit.default_timer()
-print(f'      Weights took {toc-tic:.3f}s')
+print(f'      Weights took {toc - tic:.3f}s')
 # # Show region boundaries with holes
 # marked_bounds = segmentation.mark_boundaries(segment_data, labels, color=(1, 0, 1), outline_color=None, mode='outer',
 #                                              background_label=0)
@@ -328,7 +305,7 @@ while max_val > 8:
     labelRAG.nodes[dst]["border"] = labelRAG.nodes[dst]["border"].symmetric_difference(labelRAG.nodes[src]["border"])
     labelRAG.merge_nodes(src, dst, merge_weight)
 toc = timeit.default_timer()
-print(f'      Merging took {toc-tic:.3f}s')
+print(f'      Merging took {toc - tic:.3f}s')
 # # Perform hierarchical merging
 # future.graph.merge_hierarchical(labels, labelRAG, thresh=-29, rag_copy=False,
 #                                 in_place_merge=True,
@@ -372,14 +349,14 @@ for r in labelRAG.nodes:
     r_region = list(zip(*labelRAG.nodes[r]["region"]))
 
     # Compute bandwidth and duration
-    bw = (np.max(r_border[0])-np.min(r_border[0])) * d_freq
-    dur = (np.max(r_border[1])-np.min(r_border[1])) * d_time
+    bw = (np.max(r_border[0]) - np.min(r_border[0])) * d_freq
+    dur = (np.max(r_border[1]) - np.min(r_border[1])) * d_time
 
     data_vals = segment_data[r_region[0], r_region[1]]
     height = pow2db(max(data_vals) - min(data_vals))
 
     # Only trim if within parameters
-    if (bw >= bw_min) & (dur >= dur_min) & (height >= ht_db_min):
+    if (bw >= bw_min) & (dur >= dur_min) & (height >= prom_min):
         trim_labels += trim_region(labelRAG, segment_data, r, trim_vol)
 
 trim_labels = measure.label(trim_labels)
@@ -387,7 +364,7 @@ trim_labels = measure.label(trim_labels)
 # Compute region properties for plotting
 props_all_trimmed = measure.regionprops(trim_labels, segment_data)
 toc = timeit.default_timer()
-print(f'      Trimming took {toc-tic:.3f}s')
+print(f'      Trimming took {toc - tic:.3f}s')
 
 # Table for data
 print('Building stats table')
@@ -395,27 +372,36 @@ tic = timeit.default_timer()
 stats_table = pd.DataFrame(measure.regionprops_table(trim_labels, segment_data, properties=('centroid_weighted',
                                                                                             'bbox',
                                                                                             'intensity_min',
-                                                                                             'intensity_max')))
-stats_table['prominence'] = stats_table.intensity_max - stats_table.intensity_min
+                                                                                            'intensity_max', 'label')))
+stats_table['prominence'] = stats_table['intensity_max'] - stats_table['intensity_min']
 minr = stats_table['bbox-0']
 minc = stats_table['bbox-1']
 maxr = stats_table['bbox-2']
 maxc = stats_table['bbox-3']
 
-stats_table['duration'] = (maxc - minc)*d_time
-stats_table['bandwidth'] = (maxr - minr)*d_freq
+stats_table['duration'] = (maxc - minc) * d_time
+stats_table['bandwidth'] = (maxr - minr) * d_freq
 
-stats_table['peak_time'] = stats_table['centroid_weighted-1']*d_time
-stats_table['peak_frequency'] = stats_table['centroid_weighted-0']*d_freq
+stats_table['peak_time'] = stats_table['centroid_weighted-1'] * d_time
+stats_table['peak_frequency'] = stats_table['centroid_weighted-0'] * d_freq
+
+# Query stats table for final results
+stats_table = stats_table.query('duration>@dur_min & duration<@dur_max & bandwidth>@bw_min & bandwidth<@bw_max & '
+                                'prominence>@prom_min')
+
+filtered_labels = np.zeros(segment_data.shape)
+for i in stats_table['label']:
+    filtered_labels += (trim_labels == i)
+
+filtered_labels = measure.label(filtered_labels)
 
 toc = timeit.default_timer()
-print(f'      Stats table took {toc-tic:.3f}s')
+print(f'      Stats table took {toc - tic:.3f}s')
 
 # Display region properties
 print('Stats table:')
 print(stats_table.to_string())
 print(' ')
-
 
 # Plot post-merged network
 extent = np.min(stimes), np.max(stimes), np.max(sfreqs), np.min(sfreqs)
@@ -444,22 +430,12 @@ plt.ylabel('Frequency (Hz)')
 plt.title('Merged Regions')
 
 plt.subplot(144)
-image_label_overlay = color.label2rgb(trim_labels, bg_label=0)
+image_label_overlay = color.label2rgb(filtered_labels, bg_label=0)
 plt.imshow(image_label_overlay, extent=extent)
 plt.gca().invert_yaxis()
 plt.xlabel('Time (s)')
 plt.ylabel('Frequency (Hz)')
-plt.title('Trimmed Regions')
-
-# for region in props_all_trimmed:
-#     y0, x0 = region.centroid_weighted
-#     plt.plot(x0, y0, '.k')
-#     plt.text(x0 - 1, y0 - 1, region.label, size=20, color="k",
-#              bbox=dict(facecolor='white', edgecolor='none', alpha=0.5))
-#     minr, minc, maxr, maxc = region.bbox
-#     bx = (minc, maxc, maxc, minc, minc)
-#     by = (minr, minr, maxr, maxr, minr)
-#     plt.plot(bx, by, '-b', linewidth=2.5)
+plt.title('Trimmed/Filtered Regions')
 
 # Show Figures
 plt.show()
