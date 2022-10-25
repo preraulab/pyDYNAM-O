@@ -233,9 +233,10 @@ spect, stimes, sfreqs = multitaper_spectrogram(data_csv, fs, frequency_range, ti
 d_time = stimes[1] - stimes[0]
 d_freq = sfreqs[1] - sfreqs[0]
 
+# Remove baseline
 baseline = np.percentile(spect, 3, axis=1, keepdims=True)
-
 segment_data = np.divide(spect, baseline)
+
 # Run watershed segmentation with empty border regions
 labels = segmentation.watershed(-segment_data, connectivity=2, watershed_line=True)
 
@@ -243,11 +244,11 @@ labels = segmentation.watershed(-segment_data, connectivity=2, watershed_line=Tr
 join_labels = segmentation.expand_labels(labels, distance=10)
 
 # Create a region adjacency graph (RAG))
-labelRAG = future.graph.RAG(join_labels, connectivity=2)
+RAG = future.graph.RAG(join_labels, connectivity=2)
 
 # Add labels, borders, and regions to each RAG node
-for n in labelRAG:
-    labelRAG.nodes[n]['labels'] = [n]
+for n in RAG:
+    RAG.nodes[n]['labels'] = [n]
 
     curr_region = (labels == n)
     # Compute the borders by intersecting 1 pixel dilation with zero-valued watershed border regions
@@ -260,20 +261,21 @@ for n in labelRAG:
     region = set(zip(rx, ry)).union(border)  # Add border to region
 
     # Set node properties
-    labelRAG.nodes[n]["border"] = border
-    labelRAG.nodes[n]["region"] = region
+    RAG.nodes[n]["border"] = border
+    RAG.nodes[n]["region"] = region
 
 print('Computing weights...')
 tic = timeit.default_timer()
+
 # Compute the initial RAG weights
-for edge in labelRAG.edges:
-    weight = edge_weight(labelRAG, edge, segment_data)
+for edge in RAG.edges:
+    weight = edge_weight(RAG, edge, segment_data)
 
     if np.isnan(weight):
-        labelRAG.remove_edge(edge[0], edge[1])
+        RAG.remove_edge(edge[0], edge[1])
         # print("Removing: " + str(edge))
     else:
-        labelRAG.edges[edge]["weight"] = weight
+        RAG.edges[edge]["weight"] = weight
         # print('Edge ' + str(edge) + ' weight: ' + str(weight))
 toc = timeit.default_timer()
 print(f'      Weights took {toc - tic:.3f}s')
@@ -286,29 +288,29 @@ print('Starting merge...')
 max_val = np.inf
 tic = timeit.default_timer()
 while max_val > merge_threshold:
-    all_weights = [labelRAG.edges[i]["weight"] for i in labelRAG.edges]
+    all_weights = [RAG.edges[i]["weight"] for i in RAG.edges]
     max_idx = np.argmax(all_weights)
     max_val = all_weights[max_idx]
-    max_edge = list(labelRAG.edges)[max_idx]
+    max_edge = list(RAG.edges)[max_idx]
 
     src = max_edge[0]
     dst = max_edge[1]
 
     # Region is union of regions
-    labelRAG.nodes[dst]["region"] = labelRAG.nodes[dst]["region"].union(labelRAG.nodes[src]["region"])
+    RAG.nodes[dst]["region"] = RAG.nodes[dst]["region"].union(RAG.nodes[src]["region"])
     # Border is symmetric difference of borders
-    labelRAG.nodes[dst]["border"] = labelRAG.nodes[dst]["border"].symmetric_difference(labelRAG.nodes[src]["border"])
-    labelRAG.merge_nodes(src, dst, merge_weight)
+    RAG.nodes[dst]["border"] = RAG.nodes[dst]["border"].symmetric_difference(RAG.nodes[src]["border"])
+    RAG.merge_nodes(src, dst, merge_weight)
 
 toc = timeit.default_timer()
 print(f'      Merging took {toc - tic:.3f}s')
 
 # Create a new label image
 labels_merged = np.zeros(labels.shape, dtype=int)
-for n in labelRAG:
-    for p in labelRAG.nodes[n]["region"]:
+for n in RAG:
+    for p in RAG.nodes[n]["region"]:
         labels_merged[p] = n
-    for b in labelRAG.nodes[n]["border"]:
+    for b in RAG.nodes[n]["border"]:
         labels_merged[b] = 0
 
 # Compute region properties for plotting
@@ -318,10 +320,12 @@ print('Trimming...')
 tic = timeit.default_timer()
 # Set up the trim images
 trim_labels = np.zeros(segment_data.shape)
-for r in labelRAG.nodes:
+
+# Trim only regions that are bigger than the min bw/dur
+for r in RAG.nodes:
     # Get the values of the merged nodes
-    r_border = list(zip(*labelRAG.nodes[r]["border"]))
-    r_region = list(zip(*labelRAG.nodes[r]["region"]))
+    r_border = list(zip(*RAG.nodes[r]["border"]))
+    r_region = list(zip(*RAG.nodes[r]["region"]))
 
     # Compute bandwidth and duration
     bw = (np.max(r_border[0]) - np.min(r_border[0])) * d_freq
@@ -332,16 +336,15 @@ for r in labelRAG.nodes:
 
     # Only trim if within parameters
     if (bw >= bw_min) & (dur >= dur_min) & (height >= prom_min):
-        trim_labels += trim_region(labelRAG, segment_data, r, trim_volume)
+        trim_labels += trim_region(RAG, segment_data, r, trim_volume)
 
+# Get the label image of the trimmed regions
 trim_labels = measure.label(trim_labels)
 
-# Compute region properties for plotting
-props_all_trimmed = measure.regionprops(trim_labels, segment_data)
 toc = timeit.default_timer()
 print(f'      Trimming took {toc - tic:.3f}s')
 
-# Table for data
+# Generate stats table
 print('Building stats table')
 tic = timeit.default_timer()
 stats_table = pd.DataFrame(measure.regionprops_table(trim_labels, segment_data, properties=('label',
@@ -384,9 +387,10 @@ stats_table = stats_table.query('duration>@dur_min & duration<@dur_max & bandwid
                                 'prominence>@prom_min')
 
 filtered_labels = np.zeros(segment_data.shape)
-for i in stats_table['label']:
-    filtered_labels += (trim_labels == i)
+for n in stats_table['label']:
+    filtered_labels += (trim_labels == n)
 
+# Get updated label array
 filtered_labels = measure.label(filtered_labels)
 
 toc = timeit.default_timer()
