@@ -400,6 +400,8 @@ del stats_table['bbox-0']
 del stats_table['bbox-1']
 del stats_table['bbox-2']
 del stats_table['bbox-3']
+del stats_table['intensity_max']
+del stats_table['intensity_min']
 
 # Query stats table for final results
 stats_table = stats_table.query('duration>@dur_min & duration<@dur_max & bandwidth>@bw_min & bandwidth<@bw_max & '
