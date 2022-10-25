@@ -21,9 +21,12 @@ def pow2db(val):
 
 def plot_node(graph_rag, node_num):
     """
-    Plots a node
+    Plots a node for diagnostics
+
     :param graph_rag: RAG graph
     :param node_num: Node number
+    :type graph_rag: skimage.future.graph.rag.RAG
+    :type node_num: int
     """
     for i in graph_rag.nodes[node_num]["border"]:
         plt.plot(i[1], i[0], 'kx')
@@ -35,10 +38,10 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
     """
     Computes the edge weight between two regions
 
-    :param graph_data: spectrogram data
+    :param graph_rag: RAG graph
     :param graph_edge: edge for which to compute weight
-    :param graph_rag: skimage.future.graph.rag.RAG
-    :type graph_data: RAG graph
+    :param graph_data: spectrogram data
+    :type graph_rag: skimage.future.graph.rag.RAG
     :type graph_edge: tuple
     :type graph_rag: skimage.future.graph.rag.RAG
     """
@@ -52,7 +55,9 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
 
     # Diagonal neighbor is not really connected
     if not len(A_ij):
-        return np.nan
+        return np.nan  # Set to nan to not be a neighbor
+
+        # #Computationally costly procedure to join to other region
         # img = np.zeros(graph_data.shape)
         # for i in i_region:
         #     img[i[0], i[1]] = 1
@@ -80,20 +85,19 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
     # C_ij = A_ij_max - B_i_min
     # D_ij = j_max - A_ij_max
     # w_ij = C_ij - D_ij = 2 * A_ij_max - B_i_min - j_max
-    w_ij = 2 * A_ij_max - B_i_min - j_max
+    w_ij = - B_i_min - j_max
 
     # Compute weight for j into i
     # C_ji = A_ij_max - B_j_min
     # D_ji = i_max - A_ij_max
     # w_ji = C_ji - D_ji = 2 * A_ij_max - B_j_min - i_max
-    w_ji = 2 * A_ij_max - B_j_min - i_max
+    w_ji = - B_j_min - i_max
 
     # NOTES:
-    # 1) Weights flipped sign for the hierarchical merge function which goes from low to high
-    # 2) Moved constant 2 * A_ij_max to final weight computation for efficiency
+    # 1) Moved constant 2 * A_ij_max to final weight computation for efficiency
 
     # Take the max weight of w_ij and w_ji
-    w_max = np.max([w_ij, w_ji])
+    w_max = 2 * A_ij_max + np.max([w_ij, w_ji])
 
     return w_max
 
@@ -102,7 +106,7 @@ def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     """
     Merges the regions and borders for use in hierarchical merge
 
-    :param graph_rag: skimage.future.graph.rag.RAG
+    :type graph_rag: skimage.future.graph.rag.RAG
     :param src: Source node
     :param dst: Destination node
     """
@@ -233,22 +237,22 @@ labels = segmentation.watershed(-segment_data, connectivity=2, watershed_line=Tr
 # Expand labels by 1 to join them. This will be used to compute the RAG
 join_labels = segmentation.expand_labels(labels, distance=10)
 
-# Create a region adjacency graph based
+# Create a region adjacency graph (RAG))
 labelRAG = future.graph.RAG(join_labels, connectivity=2)
+
+# Add labels, borders, and regions to each RAG node
 for n in labelRAG:
     labelRAG.nodes[n]['labels'] = [n]
 
     curr_region = (labels == n)
+    # Compute the borders by intersecting 1 pixel dilation with zero-valued watershed border regions
     bx, by = np.where(morphology.dilation(curr_region, np.ones([3, 3])) & (labels == 0))
+    # Get regions by bing full region
     rx, ry = np.where(curr_region)
 
     # Zip into sets of tuples for easy set operations (e.g. intersection)
     border = set(zip(bx, by))
-    region = set(zip(rx, ry))
-
-    # Add border pixels to region
-    for b in border:
-        region.add(b)
+    region = set(zip(rx, ry)).union(border)  # Add border to region
 
     # Set node properties
     labelRAG.nodes[n]["border"] = border
@@ -281,14 +285,16 @@ while max_val > 8:
     max_idx = np.argmax(all_weights)
     max_val = all_weights[max_idx]
     max_edge = list(labelRAG.edges)[max_idx]
-    # print(max_val)
+
     src = max_edge[0]
     dst = max_edge[1]
+
     # Region is union of regions
     labelRAG.nodes[dst]["region"] = labelRAG.nodes[dst]["region"].union(labelRAG.nodes[src]["region"])
     # Border is symmetric difference of borders
     labelRAG.nodes[dst]["border"] = labelRAG.nodes[dst]["border"].symmetric_difference(labelRAG.nodes[src]["border"])
     labelRAG.merge_nodes(src, dst, merge_weight)
+
 toc = timeit.default_timer()
 print(f'      Merging took {toc - tic:.3f}s')
 
@@ -299,7 +305,6 @@ for n in labelRAG:
         labels_merged[p] = n
     for b in labelRAG.nodes[n]["border"]:
         labels_merged[b] = 0
-# plt.title('Original')
 
 # Compute region properties for plotting
 props_all_merged = measure.regionprops(labels_merged, segment_data)
