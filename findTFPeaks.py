@@ -176,6 +176,7 @@ def trim_region(graph_rag: skimage.future.graph.RAG, graph_data: numpy.ndarray, 
 
     return label_img
 
+
 # reading the CSV file
 csv_data = pd.read_csv('data.csv', header=None)
 data_csv = np.array(csv_data[0])
@@ -391,7 +392,8 @@ stats_table['peak_time'] = stats_table['centroid_weighted-1'] * d_time
 stats_table['peak_frequency'] = stats_table['centroid_weighted-0'] * d_freq
 
 # Compute volume from label data and spectrogram
-stats_table['volume'] = [np.sum(segment_data[np.where(trim_labels == i)])*d_time*d_freq for i in stats_table['label']]
+stats_table['volume'] = [np.sum(segment_data[np.where(trim_labels == i)]) * d_time * d_freq for i in
+                         stats_table['label']]
 
 # Drop unneeded columns
 del stats_table['centroid_weighted-0']
@@ -448,7 +450,7 @@ plt.ylabel('Frequency (Hz)')
 plt.title('Merged Regions')
 
 plt.subplot(144)
-image_label_overlay = color.label2rgb(filtered_labels,  bg_label=0)
+image_label_overlay = color.label2rgb(filtered_labels, bg_label=0)
 plt.imshow(image_label_overlay, extent=img_extent)
 plt.gca().invert_yaxis()
 plt.xlabel('Time (s)')
