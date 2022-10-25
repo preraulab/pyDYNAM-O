@@ -1,6 +1,6 @@
 import numpy
 import skimage.future.graph
-from skimage import measure, segmentation, future, color, data, morphology
+from skimage import measure, segmentation, future, color, morphology
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -16,8 +16,7 @@ def pow2db(val):
     :param val: values to convert
     :return: val_dB value in dB
     """
-    val_dB = (10 * np.log10(val) + 300) - 300
-    return val_dB
+    return (10 * np.log10(val) + 300) - 300
 
 
 def plot_node(graph_rag, node_num):
@@ -36,9 +35,12 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
     """
     Computes the edge weight between two regions
 
-    :param graph_data: numpy.ndarray
-    :param graph_edge: tuple
+    :param graph_data: spectrogram data
+    :param graph_edge: edge for which to compute weight
     :param graph_rag: skimage.future.graph.rag.RAG
+    :type graph_data: RAG graph
+    :type graph_edge: tuple
+    :type graph_rag: skimage.future.graph.rag.RAG
     """
     # Get border and region tuples
     i_border = graph_rag.nodes[graph_edge[0]]["border"]
@@ -48,8 +50,8 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
 
     A_ij = i_border.intersection(j_border)
 
-    # Expand border and region if no overlap
-    if len(A_ij) == 0:
+    # Diagonal neighbor is not really connected
+    if not len(A_ij):
         return np.nan
         # img = np.zeros(graph_data.shape)
         # for i in i_region:
@@ -168,7 +170,7 @@ def trim_region(graph_rag: skimage.future.graph.RAG, graph_data: numpy.ndarray, 
     # Select the largest region if there are subregions after trim
     if np.max(label_img) > 1:
         rp = measure.regionprops(label_img)
-        max_area_label = rp[np.argmax([p.area for p in rp])].label
+        max_area_label = rp[np.argmax([prop.area for prop in rp])].label
         label_img = label_img == max_area_label
     else:
         label_img = label_img > 0
@@ -233,11 +235,9 @@ join_labels = segmentation.expand_labels(labels, distance=10)
 
 # Create a region adjacency graph based
 labelRAG = future.graph.RAG(join_labels, connectivity=2)
-for n in labelRAG.nodes():
+for n in labelRAG:
     labelRAG.nodes[n]['labels'] = [n]
 
-# Get all border and region pixels
-for n in labelRAG:
     curr_region = (labels == n)
     bx, by = np.where(morphology.dilation(curr_region, np.ones([3, 3])) & (labels == 0))
     rx, ry = np.where(curr_region)
@@ -268,24 +268,9 @@ for edge in labelRAG.edges:
         # print('Edge ' + str(edge) + ' weight: ' + str(weight))
 toc = timeit.default_timer()
 print(f'      Weights took {toc - tic:.3f}s')
-# # Show region boundaries with holes
-# marked_bounds = segmentation.mark_boundaries(segment_data, labels, color=(1, 0, 1), outline_color=None, mode='outer',
-#                                              background_label=0)
 
 # Compute Region Properties
 props_original = measure.regionprops(labels, segment_data)
-
-# image_label_overlay = color.label2rgb(labels, bg_label=0)
-# plt.imshow(image_label_overlay)
-# for region in props_original:
-#     for n in list(labelRAG.neighbors(region.label)):
-#         for p in props_original:
-#             if p["label"] == n:
-#                 yn, xn = p.centroid_weighted
-#                 plt.plot([x0, xn], [y0, yn], 'r-')
-#     y0, x0 = region.centroid_weighted
-#     plt.plot(x0, y0, '.k')
-
 
 print('Starting merge...')
 
@@ -306,11 +291,6 @@ while max_val > 8:
     labelRAG.merge_nodes(src, dst, merge_weight)
 toc = timeit.default_timer()
 print(f'      Merging took {toc - tic:.3f}s')
-# # Perform hierarchical merging
-# future.graph.merge_hierarchical(labels, labelRAG, thresh=-29, rag_copy=False,
-#                                 in_place_merge=True,
-#                                 merge_func=merge_regions,
-#                                 weight_func=merge_weight)
 
 # Create a new label image
 labels_merged = np.zeros(labels.shape, dtype=int)
@@ -323,18 +303,6 @@ for n in labelRAG:
 
 # Compute region properties for plotting
 props_all_merged = measure.regionprops(labels_merged, segment_data)
-
-# plt.subplot(121)
-# image_label_overlay = color.label2rgb(labels_merged, bg_label=0)
-# plt.imshow(image_label_overlay)
-# for region in props_all_merged:
-#     y0, x0 = region.centroid_weighted
-#     # for n in list(labelRAG.neighbors(region.label)):
-#     #     for p in props_all_merged:
-#     #         if p["label"] == n:
-#     #             yn, xn = p.centroid_weighted
-#     #             plt.plot([x0, xn], [y0, yn], 'r-')
-#     plt.plot(x0, y0, '.k')
 
 # Trim volume
 trim_vol = 0.8
