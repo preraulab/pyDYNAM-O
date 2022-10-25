@@ -1,6 +1,5 @@
 import numpy
 import skimage.future.graph
-from skimage.io import imread, imshow
 from skimage import measure, segmentation, future, color, data, morphology
 import matplotlib.pyplot as plt
 import pandas as pd
