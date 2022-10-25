@@ -111,14 +111,13 @@ def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     :param dst: Destination node
     """
     # Region is union of regions
-    graph_rag.nodes[dst]["region"] = graph_rag.nodes[dst]["region"].union(graph_rag.nodes[src]["region"])
+    graph_rag[dst]["region"] = graph_rag[dst]["region"].union(graph_rag[src]["region"])
     # Border is symmetric difference of borders
-    graph_rag.nodes[dst]["border"] = graph_rag.nodes[dst]["border"].symmetric_difference(graph_rag.nodes[src]["border"])
+    graph_rag[dst]["border"] = graph_rag[dst]["border"].symmetric_difference(graph_rag[src]["border"])
     # print(str(src) + ' > ' + str(dst) + ' weight: ' + str(graph_rag.edges[src, dst]['weight']))
 
 
-# NOTE: Is there a better way to get segment_data into this other than making it global?
-def merge_weight(graph_rag, src, dst, neighbor) -> dict:
+def merge_weight(graph_rag: skimage.future.graph.RAG, src: int, dst: int, neighbor: int, data: numpy.ndarray) -> dict:
     """
     Computes weight for use in hierarchical merge
 
@@ -128,10 +127,11 @@ def merge_weight(graph_rag, src, dst, neighbor) -> dict:
     :param src: Source node (unused but required)
     :param dst: Destination node (merged already)
     :param neighbor: Neighbor node
+    :param data: Segment data
     """
 
     # Convert weight output to dictionary form
-    n_weight = edge_weight(graph_rag, tuple([dst, neighbor]), segment_data)
+    n_weight = edge_weight(graph_rag, tuple([dst, neighbor]), data)
     # print('   ' + str(list([dst, neighbor])) + ' new weight: ' + str(n_weight))
     return {'weight': n_weight}
 
@@ -300,7 +300,7 @@ while max_val > merge_threshold:
     RAG.nodes[dst]["region"] = RAG.nodes[dst]["region"].union(RAG.nodes[src]["region"])
     # Border is symmetric difference of borders
     RAG.nodes[dst]["border"] = RAG.nodes[dst]["border"].symmetric_difference(RAG.nodes[src]["border"])
-    RAG.merge_nodes(src, dst, merge_weight)
+    RAG.merge_nodes(src, dst, merge_weight, extra_arguments=[segment_data])
 
 toc = timeit.default_timer()
 print(f'      Merging took {toc - tic:.3f}s')
