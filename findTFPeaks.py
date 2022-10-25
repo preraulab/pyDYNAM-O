@@ -182,9 +182,14 @@ def trim_region(graph_rag: skimage.future.graph.RAG, graph_data: numpy.ndarray, 
     return label_img
 
 
-# reading the CSV file
+# Get test data from the CSV file
 csv_data = pd.read_csv('data.csv', header=None)
 data_csv = np.array(csv_data[0])
+
+# Set merge threshold
+merge_threshold = 8
+# Set trim volume
+trim_volume = 0.8
 
 # Set spectrogram params
 fs = 100  # Sampling Frequency
@@ -280,7 +285,7 @@ print('Starting merge...')
 
 max_val = np.inf
 tic = timeit.default_timer()
-while max_val > 8:
+while max_val > merge_threshold:
     all_weights = [labelRAG.edges[i]["weight"] for i in labelRAG.edges]
     max_idx = np.argmax(all_weights)
     max_val = all_weights[max_idx]
@@ -309,9 +314,6 @@ for n in labelRAG:
 # Compute region properties for plotting
 props_all_merged = measure.regionprops(labels_merged, segment_data)
 
-# Trim volume
-trim_vol = 0.8
-
 print('Trimming...')
 tic = timeit.default_timer()
 # Set up the trim images
@@ -330,7 +332,7 @@ for r in labelRAG.nodes:
 
     # Only trim if within parameters
     if (bw >= bw_min) & (dur >= dur_min) & (height >= prom_min):
-        trim_labels += trim_region(labelRAG, segment_data, r, trim_vol)
+        trim_labels += trim_region(labelRAG, segment_data, r, trim_volume)
 
 trim_labels = measure.label(trim_labels)
 
