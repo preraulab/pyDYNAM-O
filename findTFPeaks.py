@@ -374,7 +374,10 @@ stats_table = pd.DataFrame(measure.regionprops_table(trim_labels, segment_data, 
                                                                                             'bbox',
                                                                                             'intensity_min',
                                                                                             'intensity_max')))
+# Compute stats
 stats_table['prominence'] = stats_table['intensity_max'] - stats_table['intensity_min']
+
+# Use bounding box to get bw and dur
 minr = stats_table['bbox-0']
 minc = stats_table['bbox-1']
 maxr = stats_table['bbox-2']
@@ -383,10 +386,20 @@ maxc = stats_table['bbox-3']
 stats_table['duration'] = (maxc - minc) * d_time
 stats_table['bandwidth'] = (maxr - minr) * d_freq
 
+# Compute time and freq from centroid
 stats_table['peak_time'] = stats_table['centroid_weighted-1'] * d_time
 stats_table['peak_frequency'] = stats_table['centroid_weighted-0'] * d_freq
+
+# Compute volume from label data and spectrogram
 stats_table['volume'] = [np.sum(segment_data[np.where(trim_labels == i)])*d_time*d_freq for i in stats_table['label']]
 
+# Drop unneeded columns
+del stats_table['centroid_weighted-0']
+del stats_table['centroid_weighted-1']
+del stats_table['bbox-0']
+del stats_table['bbox-1']
+del stats_table['bbox-2']
+del stats_table['bbox-3']
 
 # Query stats table for final results
 stats_table = stats_table.query('duration>@dur_min & duration<@dur_max & bandwidth>@bw_min & bandwidth<@bw_max & '
