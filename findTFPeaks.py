@@ -88,14 +88,9 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
     w_ij = - B_i_min - j_max
 
     # Compute weight for j into i
-    # C_ji = A_ij_max - B_j_min
-    # D_ji = i_max - A_ij_max
-    # w_ji = C_ji - D_ji = 2 * A_ij_max - B_j_min - i_max
     w_ji = - B_j_min - i_max
 
-    # NOTES:
-    # 1) Moved constant 2 * A_ij_max to final weight computation for efficiency
-
+    # Moved constant 2 * A_ij_max to final weight computation for efficiency
     # Take the max weight of w_ij and w_ji
     w_max = 2 * A_ij_max + np.max([w_ij, w_ji])
 
@@ -182,19 +177,21 @@ def trim_region(graph_rag: skimage.future.graph.RAG, graph_data: numpy.ndarray, 
     return label_img
 
 
-def nn_resample(img, shape):
+def nn_resample(data: numpy.ndarray, shape: tuple) -> numpy.ndarray:
     """
     Nearest neighbors resampling of the matrix
 
-    :param img: image to upsample
+    :param data: data matrix to upsample
+    :type data: numpy.ndarray
     :param shape: new shape
-    :return: new image
+    :type shape: tuple
+    :return: new matrix
     """
     def per_axis(in_sz, out_sz):
         ratio = 0.5 * in_sz / out_sz
         return np.round(np.linspace(ratio - 0.5, in_sz - ratio - 0.5, num=out_sz)).astype(int)
-    return img[per_axis(img.shape[0], shape[0])[:, None],
-               per_axis(img.shape[1], shape[1])]
+    return data[per_axis(data.shape[0], shape[0])[:, None],
+                per_axis(data.shape[1], shape[1])]
 
 
 # Get test data from the CSV file
