@@ -182,6 +182,21 @@ def trim_region(graph_rag: skimage.future.graph.RAG, graph_data: numpy.ndarray, 
     return label_img
 
 
+def nn_resample(img, shape):
+    """
+    Nearest neighbors resampling of the matrix
+
+    :param img: image to upsample
+    :param shape: new shape
+    :return: new image
+    """
+    def per_axis(in_sz, out_sz):
+        ratio = 0.5 * in_sz / out_sz
+        return np.round(np.linspace(ratio - 0.5, in_sz - ratio - 0.5, num=out_sz)).astype(int)
+    return img[per_axis(img.shape[0], shape[0])[:, None],
+               per_axis(img.shape[1], shape[1])]
+
+
 # Get test data from the CSV file
 csv_data = pd.read_csv('data.csv', header=None)
 data_csv = np.array(csv_data[0])
@@ -190,6 +205,9 @@ data_csv = np.array(csv_data[0])
 merge_threshold = 8
 # Set trim volume
 trim_volume = 0.8
+
+# Down sample amount
+downsample = [1, 2]
 
 # Set spectrogram params
 fs = 100  # Sampling Frequency
@@ -237,8 +255,14 @@ d_freq = sfreqs[1] - sfreqs[0]
 baseline = np.percentile(spect, 3, axis=1, keepdims=True)
 segment_data = np.divide(spect, baseline)
 
+# Downsample data
+if downsample:
+    segment_data_LR = segment_data[::downsample[0], ::downsample[1]]
+else:
+    segment_data_LR = segment_data
+
 # Run watershed segmentation with empty border regions
-labels = segmentation.watershed(-segment_data, connectivity=2, watershed_line=True)
+labels = segmentation.watershed(-segment_data_LR, connectivity=2, watershed_line=True)
 
 # Expand labels by 1 to join them. This will be used to compute the RAG
 join_labels = segmentation.expand_labels(labels, distance=10)
@@ -269,7 +293,7 @@ tic = timeit.default_timer()
 
 # Compute the initial RAG weights
 for edge in RAG.edges:
-    weight = edge_weight(RAG, edge, segment_data)
+    weight = edge_weight(RAG, edge, segment_data_LR)
 
     if np.isnan(weight):
         RAG.remove_edge(edge[0], edge[1])
@@ -281,7 +305,7 @@ toc = timeit.default_timer()
 print(f'      Weights took {toc - tic:.3f}s')
 
 # Compute Region Properties
-props_original = measure.regionprops(labels, segment_data)
+props_original = measure.regionprops(labels, segment_data_LR)
 
 print('Starting merge...')
 
@@ -300,7 +324,7 @@ while max_val > merge_threshold:
     RAG.nodes[dst]["region"] = RAG.nodes[dst]["region"].union(RAG.nodes[src]["region"])
     # Border is symmetric difference of borders
     RAG.nodes[dst]["border"] = RAG.nodes[dst]["border"].symmetric_difference(RAG.nodes[src]["border"])
-    RAG.merge_nodes(src, dst, merge_weight, extra_arguments=[segment_data])
+    RAG.merge_nodes(src, dst, merge_weight, extra_arguments=[segment_data_LR])
 
 toc = timeit.default_timer()
 print(f'      Merging took {toc - tic:.3f}s')
@@ -313,8 +337,8 @@ for n in RAG:
     for b in RAG.nodes[n]["border"]:
         labels_merged[b] = 0
 
-# Compute region properties for plotting
-props_all_merged = measure.regionprops(labels_merged, segment_data)
+if downsample:
+    labels_merged = nn_resample(labels_merged, segment_data.shape)
 
 print('Trimming...')
 tic = timeit.default_timer()
