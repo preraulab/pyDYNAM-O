@@ -24,10 +24,8 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
     :type graph_rag: skimage.future.graph.rag.RAG
     """
     # Get border and region tuples
-    i_border = graph_rag.nodes[graph_edge[0]]["border"]
-    i_region = graph_rag.nodes[graph_edge[0]]["region"]
-    j_border = graph_rag.nodes[graph_edge[1]]["border"]
-    j_region = graph_rag.nodes[graph_edge[1]]["region"]
+    i_border, i_region = list(graph_rag.nodes[graph_edge[0]].values())[1:]
+    j_border, j_region = list(graph_rag.nodes[graph_edge[1]].values())[1:]
 
     A_ij = i_border.intersection(j_border)
 
@@ -105,9 +103,9 @@ def merge_weight(graph_rag: skimage.future.graph.RAG, src: int, dst: int, neighb
     """
 
     # Convert weight output to dictionary form
-    n_weight = edge_weight(graph_rag, tuple([dst, neighbor]), data)
+    # n_weight = edge_weight(graph_rag, tuple([dst, neighbor]), data)
     # print('   ' + str(list([dst, neighbor])) + ' new weight: ' + str(n_weight))
-    return {'weight': n_weight}
+    return {'weight': edge_weight(graph_rag, tuple([dst, neighbor]), data)}
 
 
 def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged, graph_data: numpy.ndarray, region_num: int,
@@ -208,6 +206,7 @@ def convertHMS(seconds):
     seconds %= 60
 
     return "%d:%02d:%02d" % (hour, minutes, seconds)
+
 
 def process_segments_params(segment_dur: float, stimes: numpy.ndarray):
     """Gets parameters for segmenting the spectrogram
@@ -541,34 +540,34 @@ num_windows = len(start_times)
 # Set up the parameters to pass to each window
 dp_params = (merge_thresh, trim_vol, downsample, dur_min, dur_max, bw_min, bw_max, prom_min, False, False)
 
-detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
+# detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
 
-# # Run jobs in parallel
-# print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
-# tic = timeit.default_timer()
-#
-# stats_table = pd.concat(Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
-#     spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params) for num_window in tqdm(range(num_windows))), ignore_index=True)
-# toc = timeit.default_timer()
-# print('      Peak detection took ' + convertHMS(toc-tic))
-#
-# # Fix the stats_table to sort by time and reset labels
-# del stats_table['label']
-# stats_table.sort_values('peak_time')
-# stats_table.reset_index()
-#
-# # Plot post-merged network
-# img_extent = stimes[0], stimes[len(stimes)-1], sfreqs[len(sfreqs)-1], sfreqs[0]
-#
-# peak_size = stats_table['volume']/15
-# pmax = np.percentile(list(peak_size), 95)
-# peak_size[peak_size>pmax] = 0
-#
-# x = [stats_table.peak_time - 2*(stimes[1]-stimes[0])]
-# y = [stats_table.peak_frequency]
-# plt.scatter(x, y, peak_size, facecolors='none', edgecolors='k')
-# plt.xlabel('Time (s)')
-# plt.ylabel('Frequency (Hz)')
-#
-# # Show Figures
-# plt.show()
+# Run jobs in parallel
+print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
+tic = timeit.default_timer()
+
+stats_table = pd.concat(Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
+    spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params) for num_window in tqdm(range(num_windows))), ignore_index=True)
+toc = timeit.default_timer()
+print('      Peak detection took ' + convertHMS(toc-tic))
+
+# Fix the stats_table to sort by time and reset labels
+del stats_table['label']
+stats_table.sort_values('peak_time')
+stats_table.reset_index()
+
+# Plot post-merged network
+img_extent = stimes[0], stimes[len(stimes)-1], sfreqs[len(sfreqs)-1], sfreqs[0]
+
+peak_size = stats_table['volume']/15
+pmax = np.percentile(list(peak_size), 95)
+peak_size[peak_size>pmax] = 0
+
+x = [stats_table.peak_time - 2*(stimes[1]-stimes[0])]
+y = [stats_table.peak_frequency]
+plt.scatter(x, y, peak_size, facecolors='none', edgecolors='k')
+plt.xlabel('Time (s)')
+plt.ylabel('Frequency (Hz)')
+
+# Show Figures
+plt.show()
