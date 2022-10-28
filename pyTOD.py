@@ -9,7 +9,8 @@ import timeit
 from scipy.stats.distributions import chi2
 from multitaper_toolbox.python.multitaper_spectrogram_python import \
     multitaper_spectrogram  # import multitaper_spectrogram function from the multitaper_spectrogram_python.py file
-
+from joblib import Parallel, delayed, cpu_count
+from tqdm import tqdm
 
 def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: numpy.ndarray) -> float:
     """
@@ -199,8 +200,31 @@ def pow2db(val):
     return (10 * np.log10(val) + 300) - 300
 
 
-def detectTFPeaks(segment_data: numpy.ndarray, merge_threshold=8, trim_volume=0.8, downsample=None, dur_min=-np.inf,
-                  dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf, prom_min=-np.inf, plot_on=True, verbose=True) -> pandas.DataFrame:
+def process_segments_params(segment_dur: float, stimes: numpy.ndarray):
+    """Gets parameters for segmenting the spectrogram
+
+    :param segment_dur: The duration of the segment in seconds
+    :param stimes: spectrogram times
+    :return: window_idx, start_times
+    """
+    # create frequency vector
+    d_stimes = stimes[1] - stimes[0]
+    win_samples = np.round(segment_dur / d_stimes)
+
+    window_start = np.arange(0, len(stimes) - 1, win_samples)
+
+    # Get indexes for each window
+    window_idx = [np.arange(window_start[i], np.min([window_start[i] + win_samples, len(stimes)]), 1).astype(int)
+                  for i in np.arange(0, len(window_start), 1)]
+
+    start_times = stimes[window_start.astype(int)]
+
+    return window_idx, start_times
+
+
+def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, merge_threshold=8, trim_volume=0.8, downsample=None, dur_min=-np.inf,
+                   dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf, prom_min=-np.inf, plot_on=True,
+                   verbose=True) -> pandas.DataFrame:
     # Downsample data
     if downsample is None:
         downsample = []
@@ -343,7 +367,7 @@ def detectTFPeaks(segment_data: numpy.ndarray, merge_threshold=8, trim_volume=0.
     stats_table['bandwidth'] = (maxr - minr) * d_freq
 
     # Compute time and freq from centroid
-    stats_table['peak_time'] = stats_table['centroid_weighted-1'] * d_time
+    stats_table['peak_time'] = stats_table['centroid_weighted-1'] * d_time + start_time
     stats_table['peak_frequency'] = stats_table['centroid_weighted-0'] * d_freq
 
     # Compute volume from label data and spectrogram
@@ -426,12 +450,6 @@ csv_data = pd.read_csv('data.csv', header=None)
 
 # Get test data from the CSV file
 data_csv = np.array(csv_data[0])
-# merge_threshold = 8
-
-# Set merge threshold
-# Set trim volume
-#  trim_volume = 0.8
-#  downsample = [1, 2]
 
 # Down sample amount
 fs = 100  # Sampling Frequency
@@ -451,7 +469,7 @@ cpus = 4  # use 4 cores in multiprocessing
 weighting = 'unity'  # weight each taper at 1
 plot_on = False  # plot spectrogram
 clim_scale = False  # do not auto-scale colormap
-verbose = True  # print extra info
+verbose = False  # print extra info
 xyflip = False  # do not transpose spect output matrix
 
 # MTS frequency resolution
@@ -482,6 +500,46 @@ d_freq = sfreqs[1] - sfreqs[0]
 
 # Remove baseline
 baseline = np.percentile(spect, 3, axis=1, keepdims=True)
-segment_data = np.divide(spect, baseline)
+spect_baseline = np.divide(spect, baseline)
 
-detectTFPeaks(segment_data, dur_min = dur_min, bw_min = bw_min, prom_min=prom_min)
+merge_thresh = 8
+trim_vol = 0.8
+downsample = [1, 2]
+
+# Set the size of the spectrogram samples
+segment_dur = 3  # Segment time in seconds
+window_idxs, start_times = process_segments_params(segment_dur, stimes)
+num_windows = len(start_times)
+
+dp_params = (merge_thresh, trim_vol, downsample, dur_min, dur_max, bw_min, bw_max, prom_min, False, False)
+
+n_jobs = max(cpu_count() - 1, 1)
+print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
+tic = timeit.default_timer()
+
+stats_table = pd.concat(Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
+    spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params) for num_window in tqdm(range(num_windows))), ignore_index=True)
+toc = timeit.default_timer()
+print(f'      Peak detection took {toc - tic:.3f}s')
+
+del stats_table['label']
+stats_table.sort_values('peak_time')
+stats_table.reset_index()
+
+# Plot post-merged network
+img_extent = stimes[0], stimes[len(stimes)-1], sfreqs[len(sfreqs)-1], sfreqs[0]
+
+plt.imshow(pow2db(spect_baseline), extent=img_extent, cmap='jet')
+plt.gca().invert_yaxis()
+plt.xlabel('Time (s)')
+plt.ylabel('Frequency (Hz)')
+
+x = [stats_table.peak_time - 2*(stimes[1]-stimes[0])]
+y = [stats_table.peak_frequency]
+plt.plot(x, y, '.k')
+
+clim = np.percentile(pow2db(spect_baseline), [5, 95])
+plt.clim = clim
+
+# Show Figures
+plt.show()
