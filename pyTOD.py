@@ -7,10 +7,10 @@ import pandas as pd
 import numpy as np
 import timeit
 from scipy.stats.distributions import chi2
-from multitaper_toolbox.python.multitaper_spectrogram_python import \
-    multitaper_spectrogram  # import multitaper_spectrogram function from the multitaper_spectrogram_python.py file
+from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
 from joblib import Parallel, delayed, cpu_count
 from tqdm import tqdm
+
 
 def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: numpy.ndarray) -> float:
     """
@@ -200,6 +200,15 @@ def pow2db(val):
     return (10 * np.log10(val) + 300) - 300
 
 
+def convertHMS(seconds):
+    seconds = seconds % (24 * 3600)
+    hour = seconds // 3600
+    seconds %= 3600
+    minutes = seconds // 60
+    seconds %= 60
+
+    return "%d:%02d:%02d" % (hour, minutes, seconds)
+
 def process_segments_params(segment_dur: float, stimes: numpy.ndarray):
     """Gets parameters for segmenting the spectrogram
 
@@ -282,26 +291,39 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, merge_threshold=8,
     if verbose:
         print('Starting merge...')
 
+    tic_merge = timeit.default_timer()
+    get_max_time = 0
+    merge_borders_time = 0
+    merge_node_time = 0
+
     max_val = np.inf
-    tic = timeit.default_timer()
     while max_val > merge_threshold:
-        all_weights = [RAG.edges[i]["weight"] for i in RAG.edges]
-        max_idx = np.argmax(all_weights)
-        max_val = all_weights[max_idx]
-        max_edge = list(RAG.edges)[max_idx]
+        # tic = timeit.default_timer()
+        edge, mv = max(dict(RAG.edges).items(), key=lambda x: x[1]['weight'])
+        src, dst = edge
+        max_val = mv['weight']
+        # toc = timeit.default_timer()
+        # get_max_time += toc-tic
 
-        src = max_edge[0]
-        dst = max_edge[1]
-
+        # tic = timeit.default_timer()
         # Region is union of regions
         RAG.nodes[dst]["region"] = RAG.nodes[dst]["region"].union(RAG.nodes[src]["region"])
         # Border is symmetric difference of borders
         RAG.nodes[dst]["border"] = RAG.nodes[dst]["border"].symmetric_difference(RAG.nodes[src]["border"])
+        # toc = timeit.default_timer()
+        # merge_borders_time += toc - tic
+
+        # tic = timeit.default_timer()
         RAG.merge_nodes(src, dst, merge_weight, extra_arguments=[segment_data_LR])
+        #  toc = timeit.default_timer()
+        #  merge_node_time += toc - tic
 
     if verbose:
-        toc = timeit.default_timer()
-        print(f'      Merging took {toc - tic:.3f}s')
+        toc_merge = timeit.default_timer()
+        print(f'      Merging took {toc_merge - tic_merge:.3f}s')
+        print(f'            Max edge took {get_max_time:.3f}s')
+        print(f'            Border merge took {merge_borders_time:.3f}s')
+        print(f'            Node merge took {merge_node_time:.3f}s')
 
     # Create a new label image
     labels_merged = np.zeros(labels.shape, dtype=int)
@@ -400,10 +422,10 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, merge_threshold=8,
         toc = timeit.default_timer()
         print(f'      Stats table took {toc - tic:.3f}s')
 
-        # Display region properties
-        print('Stats table:')
-        print(stats_table.to_string())
-        print(' ')
+        # # Display region properties
+        # print('Stats table:')
+        # print(stats_table.to_string())
+        # print(' ')
 
     if plot_on:
         # Plot post-merged network
@@ -446,15 +468,17 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, merge_threshold=8,
     return stats_table
 
 
-csv_data = pd.read_csv('data.csv', header=None)
+csv_data = pd.read_csv('data_segment.csv', header=None)
 
 # Get test data from the CSV file
-data_csv = np.array(csv_data[0])
+data_csv = np.array(csv_data[0]).astype(np.float32)
+# Sampling Frequency
+fs = 100
 
-# Down sample amount
-fs = 100  # Sampling Frequency
+# Number of jobs to use
+n_jobs = max(cpu_count() - 1, 1)
 
-# Set spectrogram params
+#%% COMPUTE MULTITAPER SPECTROGRAM
 # Limit frequencies from 0 to 25 Hz
 frequency_range = [0, 30]
 
@@ -465,11 +489,11 @@ window_params = [1, .05]  # Window size is 4s with step size of 1s
 min_nfft = 2 ** 10  # NFFT
 detrend_opt = 'constant'  # constant detrend
 multiprocess = True  # use multiprocessing
-cpus = 4  # use 4 cores in multiprocessing
+cpus = n_jobs  # use max cores in multiprocessing
 weighting = 'unity'  # weight each taper at 1
 plot_on = False  # plot spectrogram
 clim_scale = False  # do not auto-scale colormap
-verbose = False  # print extra info
+verbose = True  # print extra info
 xyflip = False  # do not transpose spect output matrix
 
 # MTS frequency resolution
@@ -502,44 +526,49 @@ d_freq = sfreqs[1] - sfreqs[0]
 baseline = np.percentile(spect, 3, axis=1, keepdims=True)
 spect_baseline = np.divide(spect, baseline)
 
-merge_thresh = 8
+#%% DETECT TF-PEAKS
+
+# Set TF-peak detection settings
+merge_thresh = 11
 trim_vol = 0.8
-downsample = [1, 2]
+segment_dur = 30  # Segment time in seconds
+downsample = [2, 2]
 
 # Set the size of the spectrogram samples
-segment_dur = 3  # Segment time in seconds
 window_idxs, start_times = process_segments_params(segment_dur, stimes)
 num_windows = len(start_times)
 
+# Set up the parameters to pass to each window
 dp_params = (merge_thresh, trim_vol, downsample, dur_min, dur_max, bw_min, bw_max, prom_min, False, False)
 
-n_jobs = max(cpu_count() - 1, 1)
-print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
-tic = timeit.default_timer()
+detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
 
-stats_table = pd.concat(Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
-    spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params) for num_window in tqdm(range(num_windows))), ignore_index=True)
-toc = timeit.default_timer()
-print(f'      Peak detection took {toc - tic:.3f}s')
-
-del stats_table['label']
-stats_table.sort_values('peak_time')
-stats_table.reset_index()
-
-# Plot post-merged network
-img_extent = stimes[0], stimes[len(stimes)-1], sfreqs[len(sfreqs)-1], sfreqs[0]
-
-plt.imshow(pow2db(spect_baseline), extent=img_extent, cmap='jet')
-plt.gca().invert_yaxis()
-plt.xlabel('Time (s)')
-plt.ylabel('Frequency (Hz)')
-
-x = [stats_table.peak_time - 2*(stimes[1]-stimes[0])]
-y = [stats_table.peak_frequency]
-plt.plot(x, y, '.k')
-
-clim = np.percentile(pow2db(spect_baseline), [5, 95])
-plt.clim = clim
-
-# Show Figures
-plt.show()
+# # Run jobs in parallel
+# print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
+# tic = timeit.default_timer()
+#
+# stats_table = pd.concat(Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
+#     spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params) for num_window in tqdm(range(num_windows))), ignore_index=True)
+# toc = timeit.default_timer()
+# print('      Peak detection took ' + convertHMS(toc-tic))
+#
+# # Fix the stats_table to sort by time and reset labels
+# del stats_table['label']
+# stats_table.sort_values('peak_time')
+# stats_table.reset_index()
+#
+# # Plot post-merged network
+# img_extent = stimes[0], stimes[len(stimes)-1], sfreqs[len(sfreqs)-1], sfreqs[0]
+#
+# peak_size = stats_table['volume']/15
+# pmax = np.percentile(list(peak_size), 95)
+# peak_size[peak_size>pmax] = 0
+#
+# x = [stats_table.peak_time - 2*(stimes[1]-stimes[0])]
+# y = [stats_table.peak_frequency]
+# plt.scatter(x, y, peak_size, facecolors='none', edgecolors='k')
+# plt.xlabel('Time (s)')
+# plt.ylabel('Frequency (Hz)')
+#
+# # Show Figures
+# plt.show()
