@@ -73,6 +73,60 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
     return w_max
 
 
+def merge_weight(graph_rag: skimage.future.graph.RAG, src: int, dst: int, neighbor: int,
+                 graph_data: numpy.ndarray) -> dict:
+    """
+    Computes the edge weight between two regions in merge. (mirrors edge_weight)
+    NOTE: Keeping as a distinct function saves some time rather than calling a wrapper to edge_weight
+
+    :param graph_rag: RAG graph
+    :param src: source (unused)
+    :param dst: destination node (merged already)
+    :param graph_data: spectrogram data
+    :type graph_rag: skimage.future.graph.rag.RAG
+    :type graph_rag: skimage.future.graph.rag.RAG
+    """
+    # Get border and region tuples
+    i_border, i_region = list(graph_rag.nodes[dst].values())[1:]
+    j_border, j_region = list(graph_rag.nodes[neighbor].values())[1:]
+
+    A_ij = i_border.intersection(j_border)
+
+    # Diagonal neighbor is not really connected
+    if not len(A_ij):
+        return np.nan  # Set to nan to not be a neighbor
+
+    A_ij_max = np.max([graph_data[i] for i in A_ij])
+
+    # Store for reuse efficiency
+    i_border_vals = [graph_data[i] for i in i_border]
+    j_border_vals = [graph_data[i] for i in j_border]
+
+    # Minimum border values
+    B_i_min = np.min(i_border_vals)
+    B_j_min = np.min(j_border_vals)
+
+    # Max region values
+    i_max = np.max([graph_data[i] for i in i_region] + i_border_vals)
+    j_max = np.max([graph_data[i] for i in j_region] + j_border_vals)
+
+    # Compute weight for i into j
+    # C_ij = A_ij_max - B_i_min
+    # D_ij = j_max - A_ij_max
+    # w_ij = C_ij - D_ij = 2 * A_ij_max - B_i_min - j_max
+    w_ij = - B_i_min - j_max
+
+    # Compute weight for j into i
+    w_ji = - B_j_min - i_max
+
+    # Moved constant 2 * A_ij_max to final weight computation for efficiency
+    # Take the max weight of w_ij and w_ji
+    w_max = 2 * A_ij_max + np.max([w_ij, w_ji])
+
+    # Return as dict
+    return {'weight': w_max}
+
+
 def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     """
     Merges the regions and borders for use in hierarchical merge
@@ -86,26 +140,6 @@ def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     # Border is symmetric difference of borders
     graph_rag[dst]["border"] = graph_rag[dst]["border"].symmetric_difference(graph_rag[src]["border"])
     # print(str(src) + ' > ' + str(dst) + ' weight: ' + str(graph_rag.edges[src, dst]['weight']))
-
-
-def merge_weight(graph_rag: skimage.future.graph.RAG, src: int, dst: int, neighbor: int,
-                 data: numpy.ndarray) -> dict:
-    """
-    Computes weight for use in hierarchical merge
-
-    :rtype dict
-    :return Weight between src and neighbors
-    :param graph_rag: skimage.future.graph.rag.RAG
-    :param src: Source node (unused but required)
-    :param dst: Destination node (merged already)
-    :param neighbor: Neighbor node
-    :param data: Segment data
-    """
-
-    # Convert weight output to dictionary form
-    # n_weight = edge_weight(graph_rag, tuple([dst, neighbor]), data)
-    # print('   ' + str(list([dst, neighbor])) + ' new weight: ' + str(n_weight))
-    return {'weight': edge_weight(graph_rag, tuple([dst, neighbor]), data)}
 
 
 def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged, graph_data: numpy.ndarray, region_num: int,
