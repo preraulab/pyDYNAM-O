@@ -267,6 +267,8 @@ def process_segments_params(segment_dur: float, stimes: numpy.ndarray):
 def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, merge_threshold=8, trim_volume=0.8, downsample=None, dur_min=-np.inf,
                    dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf, prom_min=-np.inf, plot_on=True,
                    verbose=True) -> pandas.DataFrame:
+    # tic_all = timeit.default_timer()
+
     # Downsample data
     if downsample is None:
         downsample = []
@@ -498,6 +500,8 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, merge_threshold=8,
         # Show Figures
         plt.show()
 
+    # toc_all = timeit.default_timer()
+    # print(f'TOTAL SEGMENT TIME:  {toc_all - tic_all:.3f}s')
     return stats_table
 
 
@@ -574,14 +578,18 @@ num_windows = len(start_times)
 # Set up the parameters to pass to each window
 dp_params = (merge_thresh, trim_vol, downsample, dur_min, dur_max, bw_min, bw_max, prom_min, False, False)
 
-# detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
+# stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
 
 # Run jobs in parallel
 print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
 tic = timeit.default_timer()
 
-stats_table = pd.concat(Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
-    spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params) for num_window in tqdm(range(num_windows))), ignore_index=True)
+stats_tables = Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
+    spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
+                                       for num_window in tqdm(range(num_windows)))
+
+stats_table = pd.concat(stats_tables, ignore_index=True)
+
 toc = timeit.default_timer()
 print('      Peak detection took ' + convertHMS(toc-tic))
 
