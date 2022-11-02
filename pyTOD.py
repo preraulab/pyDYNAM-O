@@ -1,7 +1,3 @@
-import time
-
-import numpy
-import pandas
 import skimage.future.graph
 from skimage import measure, segmentation, future, color, morphology
 import matplotlib.pyplot as plt
@@ -12,19 +8,16 @@ from scipy.stats.distributions import chi2
 from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
 from joblib import Parallel, delayed, cpu_count
 from tqdm import tqdm
-from multiprocessing import Pool
 
 
-def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: numpy.ndarray) -> float:
+def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: np.ndarray) -> float:
     """
     Computes the edge weight between two regions
 
+    :return: Edge weight
     :param graph_rag: RAG graph
     :param graph_edge: edge for which to compute weight
     :param graph_data: spectrogram data
-    :type graph_rag: skimage.future.graph.rag.RAG
-    :type graph_edge: tuple
-    :type graph_rag: skimage.future.graph.rag.RAG
     """
     # Get border and region tuples
     i_border, i_region = list(graph_rag.nodes[graph_edge[0]].values())[1:]
@@ -77,17 +70,17 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
 
 
 def merge_weight(graph_rag: skimage.future.graph.RAG, src: int, dst: int, neighbor: int,
-                 graph_data: numpy.ndarray) -> dict:
+                 graph_data: np.ndarray) -> dict:
     """
     Computes the edge weight between two regions in merge. (mirrors edge_weight)
     NOTE: Keeping as a distinct function saves some time rather than calling a wrapper to edge_weight
 
+    :return: edge weight
+    :param neighbor: neighbor node
     :param graph_rag: RAG graph
     :param src: source (unused)
     :param dst: destination node (merged already)
     :param graph_data: spectrogram data
-    :type graph_rag: skimage.future.graph.rag.RAG
-    :type graph_rag: skimage.future.graph.rag.RAG
     """
     # Get border and region tuples
     i_border, i_region = list(graph_rag.nodes[dst].values())[1:]
@@ -134,7 +127,7 @@ def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     """
     Merges the regions and borders for use in hierarchical merge
 
-    :type graph_rag: skimage.future.graph.rag.RAG
+    :param graph_rag: RAG graph
     :param src: Source node
     :param dst: Destination node
     """
@@ -145,18 +138,19 @@ def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     # print(str(src) + ' > ' + str(dst) + ' weight: ' + str(graph_rag.edges[src, dst]['weight']))
 
 
-def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged, graph_data: numpy.ndarray, region_num: int,
+def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged: np.ndarray, graph_data: np.ndarray, region_num: int,
                 trim_volume: float):
     """
     Computes the edge weight between two regions
     NOTE: Weights must be flipped to be negative to match ascending hierarchical merging
 
+    :param labels_merged: labels of merged regions
     :param trim_volume: Percentage to trim
     :type: float
     :param graph_rag: RAG
     :type graph_rag: skimage.future.graph.rag.RAG
     :param graph_data: Spectrogram data
-    :type graph_data: numpy.ndarray
+    :type graph_data: np.ndarray
     :param region_num: Region number
     :type region_num: int
     """
@@ -207,12 +201,12 @@ def plot_node(graph_rag, node_num):
         plt.plot(i[1], i[0], 'b.')
 
 
-def nn_resample(data: numpy.ndarray, shape: tuple) -> numpy.ndarray:
+def nn_resample(data: np.ndarray, shape: tuple) -> np.ndarray:
     """
     Nearest neighbors resampling of the matrix
 
     :param data: data matrix to upsample
-    :type data: numpy.ndarray
+    :type data: np.ndarray
     :param shape: new shape
     :type shape: tuple
     :return: new matrix
@@ -245,7 +239,7 @@ def convertHMS(seconds):
     return "%d:%02d:%02d" % (hour, minutes, seconds)
 
 
-def process_segments_params(segment_dur: float, stimes: numpy.ndarray):
+def process_segments_params(segment_dur: float, stimes: np.ndarray):
     """Gets parameters for segmenting the spectrogram
 
     :param segment_dur: The duration of the segment in seconds
@@ -267,10 +261,31 @@ def process_segments_params(segment_dur: float, stimes: numpy.ndarray):
     return window_idx, start_times
 
 
-def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, d_time=1, d_freq=1, merge_threshold=8, trim_volume=0.8,
+def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_threshold=8, max_merges=np.inf,
+                   trim_volume=0.8,
                    downsample=None, dur_min=-np.inf, dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf, prom_min=-np.inf,
-                   plot_on=True, verbose=True) -> pandas.DataFrame:
-    # tic_all = timeit.default_timer()
+                   plot_on=True, verbose=True) -> pd.DataFrame:
+    """Detects TF-peaks within a spectrogram
+
+    :return: Table of peak statistics
+    :param segment_data: Spectrogram segment for peak detection
+    :param start_time: Start time of the segment
+    :param d_time: Time bin size
+    :param d_freq: Frequency bin size
+    :param merge_threshold: Threshold to stop merging
+    :param max_merges: Maximum number of merges to perform
+    :param trim_volume: % of total peak volume to keep
+    :param downsample: time x freq step to downsample
+    :param dur_min: min peak duration
+    :param dur_max: max peak duration
+    :param bw_min: min bandwidth
+    :param bw_max: max bandwidth
+    :param prom_min: min prominence
+    :param plot_on: Flag for plotting
+    """
+
+    if verbose:
+        tic_all = timeit.default_timer()
 
     # Downsample data
     if downsample is None:
@@ -309,7 +324,7 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, d_time=1, d_freq=1
 
     if verbose:
         print('Computing weights...')
-        tic = timeit.default_timer()
+        tic_weights = timeit.default_timer()
 
     # Compute the initial RAG weights
     for edge in RAG.edges:
@@ -323,42 +338,58 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, d_time=1, d_freq=1
             # print('Edge ' + str(edge) + ' weight: ' + str(weight))
 
     if verbose:
-        toc = timeit.default_timer()
-        print(f'      Weights took {toc - tic:.3f}s')
+        toc_weights = timeit.default_timer()
+        print(f'      Weights took {toc_weights - tic_weights:.3f}s')
 
     if verbose:
         print('Starting merge...')
+        tic_merge = timeit.default_timer()
+        get_max_time = 0
+        merge_borders_time = 0
+        merge_node_time = 0
 
-    tic_merge = timeit.default_timer()
-    get_max_time = 0
-    merge_borders_time = 0
-    merge_node_time = 0
-
+    # Set initial max value
     max_val = np.inf
-    while max_val > merge_threshold:
-        # tic = timeit.default_timer()
+
+    # Unclear if any advantage to for vs. while loop construction
+    for num_merges in range(max_merges):
+        if max_val <= merge_threshold:
+            break
+
+        if verbose:
+            tic_max = timeit.default_timer()
+
         edge, mv = max(dict(RAG.edges).items(), key=lambda x: x[1]['weight'])
         src, dst = edge
         max_val = mv['weight']
-        # toc = timeit.default_timer()
-        # get_max_time += toc-tic
 
-        # tic = timeit.default_timer()
+        if verbose:
+            toc_max = timeit.default_timer()
+            get_max_time += toc_max-tic_max
+
+        if verbose:
+            tic_borders = timeit.default_timer()
+
         # Region is union of regions
         RAG.nodes[dst]["region"] = RAG.nodes[dst]["region"].union(RAG.nodes[src]["region"])
         # Border is symmetric difference of borders
         RAG.nodes[dst]["border"] = RAG.nodes[dst]["border"].symmetric_difference(RAG.nodes[src]["border"])
-        # toc = timeit.default_timer()
-        # merge_borders_time += toc - tic
 
-        # tic = timeit.default_timer()
+        if verbose:
+            toc_borders = timeit.default_timer()
+            merge_borders_time += toc_borders - tic_borders
+            tic_node = timeit.default_timer()
+
         RAG.merge_nodes(src, dst, merge_weight, extra_arguments=[segment_data_LR])
-        #  toc = timeit.default_timer()
-        #  merge_node_time += toc - tic
+
+        if verbose:
+            toc_node = timeit.default_timer()
+            merge_node_time += toc_node - tic_node
 
     if verbose:
         toc_merge = timeit.default_timer()
         print(f'      Merging took {toc_merge - tic_merge:.3f}s')
+
         print(f'            Max edge took {get_max_time:.3f}s')
         print(f'            Border merge took {merge_borders_time:.3f}s')
         print(f'            Node merge took {merge_node_time:.3f}s')
@@ -376,7 +407,7 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, d_time=1, d_freq=1
 
     if verbose:
         print('Trimming...')
-        tic = timeit.default_timer()
+        tic_trim = timeit.default_timer()
     # Set up the trim images
     trim_labels = np.zeros(segment_data.shape)
 
@@ -395,26 +426,28 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, d_time=1, d_freq=1
 
         # Only trim if within parameters
         if (bw >= bw_min) & (dur >= dur_min) & (height >= prom_min):
+            # Add to new labels image
             trim_labels += trim_region(RAG, labels_merged, segment_data, r, trim_volume)
 
     # Get the label image of the trimmed regions
     trim_labels = measure.label(trim_labels)
 
     if verbose:
-        toc = timeit.default_timer()
-        print(f'      Trimming took {toc - tic:.3f}s')
+        toc_trim = timeit.default_timer()
+        print(f'      Trimming took {toc_trim - tic_trim:.3f}s')
 
     # Generate stats table
     if verbose:
         print('Building stats table')
-        tic = timeit.default_timer()
+        tic_stats = timeit.default_timer()
 
+    # Compute the stats table for just the needed stats
     stats_table = pd.DataFrame(measure.regionprops_table(trim_labels, segment_data, properties=('label',
                                                                                                 'centroid_weighted',
                                                                                                 'bbox',
                                                                                                 'intensity_min',
                                                                                                 'intensity_max')))
-    # Compute stats
+    # Calculate all custom stats
     stats_table['prominence'] = stats_table['intensity_max'] - stats_table['intensity_min']
 
     # Use bounding box to get bw and dur
@@ -449,16 +482,9 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, d_time=1, d_freq=1
         'duration>@dur_min & duration<@dur_max & bandwidth>@bw_min & bandwidth<@bw_max & '
         'prominence>@prom_min')
 
-    filtered_labels = np.zeros(segment_data.shape)
-    for n in stats_table['label']:
-        filtered_labels += (trim_labels == n)
-
-    # Get updated label array
-    filtered_labels = measure.label(filtered_labels)
-
     if verbose:
-        toc = timeit.default_timer()
-        print(f'      Stats table took {toc - tic:.3f}s')
+        toc_stats = timeit.default_timer()
+        print(f'      Stats table took {toc_stats - tic_stats:.3f}s')
 
         # # Display region properties
         # print('Stats table:')
@@ -466,6 +492,14 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, d_time=1, d_freq=1
         # print(' ')
 
     if plot_on:
+        # Make labels post filtering for display
+        filtered_labels = np.zeros(segment_data.shape)
+        for n in stats_table['label']:
+            filtered_labels += (trim_labels == n)
+
+        # Get updated label array
+        filtered_labels = measure.label(filtered_labels)
+
         # Plot post-merged network
         img_extent = 0, list(segment_data.shape)[1] * d_time, list(segment_data.shape)[0] * d_freq, 0
 
@@ -503,8 +537,10 @@ def detect_tfpeaks(segment_data: numpy.ndarray, start_time=0, d_time=1, d_freq=1
         # Show Figures
         plt.show()
 
-    # toc_all = timeit.default_timer()
-    # print(f'TOTAL SEGMENT TIME:  {toc_all - tic_all:.3f}s')
+    if verbose:
+        toc_all = timeit.default_timer()
+        print(f'TOTAL SEGMENT TIME:  {toc_all - tic_all:.3f}s')
+
     return stats_table
 
 
@@ -574,29 +610,33 @@ def main():
     trim_vol = 0.8
     segment_dur = 30  # Segment time in seconds
     downsample = [2, 2]
+    max_merges = 500
+    plot_on = False
+    verbose = False
 
     # Set the size of the spectrogram samples
     window_idxs, start_times = process_segments_params(segment_dur, stimes)
     num_windows = len(start_times)
 
     # Set up the parameters to pass to each window
-    dp_params = (d_time, d_freq, merge_thresh, trim_vol, downsample, dur_min, dur_max,
-                 bw_min, bw_max, prom_min, False, False)
+    dp_params = (d_time, d_freq, merge_thresh, max_merges, trim_vol, downsample, dur_min, dur_max,
+                 bw_min, bw_max, prom_min, plot_on, verbose)
 
+    #  Run jobs in parallel
+    print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
+    tic_outer = timeit.default_timer()
+
+    # Single chunk test
     # stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
 
-    # Run jobs in parallel
-    print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
-    tic = timeit.default_timer()
-
     stats_tables = Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
-         spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
-                                            for num_window in tqdm(range(num_windows)))
+        spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
+                                           for num_window in tqdm(range(num_windows)))
 
     stats_table = pd.concat(stats_tables, ignore_index=True)
 
-    toc = timeit.default_timer()
-    print('      Peak detection took ' + convertHMS(toc - tic))
+    toc_outer = timeit.default_timer()
+    print('Peak detection took ' + convertHMS(toc_outer - tic_outer))
 
     # Fix the stats_table to sort by time and reset labels
     del stats_table['label']
@@ -604,7 +644,7 @@ def main():
     stats_table.reset_index()
 
     # Plot post-merged network
-    img_extent = stimes[0], stimes[len(stimes) - 1], sfreqs[len(sfreqs) - 1], sfreqs[0]
+    # img_extent = stimes[0], stimes[len(stimes) - 1], sfreqs[len(sfreqs) - 1], sfreqs[0]
 
     peak_size = stats_table['volume'] / 15
     pmax = np.percentile(list(peak_size), 95)
