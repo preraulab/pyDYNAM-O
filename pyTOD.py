@@ -1,3 +1,4 @@
+import scipy.signal
 import skimage.future.graph
 from skimage import measure, segmentation, future, color, morphology
 import matplotlib.pyplot as plt
@@ -8,6 +9,8 @@ from scipy.stats.distributions import chi2
 from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
 from joblib import Parallel, delayed, cpu_count
 from tqdm import tqdm
+from scipy import signal
+from matplotlib import colors
 
 
 def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: np.ndarray) -> float:
@@ -365,7 +368,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 
         if verbose:
             toc_max = timeit.default_timer()
-            get_max_time += toc_max-tic_max
+            get_max_time += toc_max - tic_max
 
         if verbose:
             tic_borders = timeit.default_timer()
@@ -544,16 +547,60 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     return stats_table
 
 
+def butter_bandpass(lowcut, highcut, fs, order=50):
+    """Performs a zero-phase butterworth bandpass filter on SOS
+
+    :param lowcut: Low-end frequency cutoff
+    :param highcut: High-end frequency cutoff
+    :param fs: Sampling Frequency
+    :param order: Filter order
+    :return: Filtered data
+    """
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+    sos = signal.butter(order, [low, high], btype='band', output='sos')
+    return sos
+
+
+def SO_phase(data, fs, lowcut = 0.3, highcut = 1.5, order = 50) :
+    """Computes unwrapped slow oscillation phase
+    Note: Phase is unwrapped because wrapping does not returne to original angle given the unwrapping algorithm
+
+    :param data: EEG time series data
+    :param fs: Sampling frequency
+    :param lowcut: Bandpass low-end cutoff
+    :param highcut: Bandpass high-end cutoff
+    :param order: Filter order
+    :return: Unwrapped phase
+    """
+    sos = butter_bandpass(lowcut, highcut, fs, 10)
+    data_filt = signal.sosfiltfilt(sos, data)
+
+    analytic_signal = signal.hilbert(data_filt)
+    phase = np.unwrap(np.angle(analytic_signal))
+    return phase
+
+
+def wrap_phase(phase: np.ndarray) -> np.ndarray:
+    """Wrap phase from -pi to pi
+
+    :param phase: Unwrapped phase
+    :return: Wrapped phase
+    """
+    return np.angle(np.exp(1j * phase))
+
+
 def main():
-    csv_data = pd.read_csv('data_segment.csv', header=None)
-
-    # Get test data from the CSV file
-    data_csv = np.array(csv_data[0]).astype(np.float32)
-    # Sampling Frequency
-    fs = 100
-
     # Number of jobs to use
     n_jobs = max(cpu_count() - 1, 1)
+
+    # Load in data
+    csv_data = pd.read_csv('data_night.csv', header=None)
+    data = np.array(csv_data[0]).astype(np.float32)
+
+    # Sampling Frequency
+    fs = 100
 
     # %% COMPUTE MULTITAPER SPECTROGRAM
     # Limit frequencies from 0 to 25 Hz
@@ -590,7 +637,7 @@ def main():
     prom_min = -pow2db(chi2_df / chi2.ppf(alpha / 2 + 0.5, chi2_df)) * 2
 
     # Compute the multitaper spectrogram
-    spect, stimes, sfreqs = multitaper_spectrogram(data_csv, fs, frequency_range, time_bandwidth, num_tapers,
+    spect, stimes, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
                                                    window_params,
                                                    min_nfft, detrend_opt, multiprocess, cpus,
                                                    weighting, plot_on, clim_scale, verbose, xyflip)
@@ -626,7 +673,7 @@ def main():
     print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
     tic_outer = timeit.default_timer()
 
-    # Single chunk test
+    # # Single chunk test
     # stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
 
     stats_tables = Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
@@ -638,27 +685,86 @@ def main():
     toc_outer = timeit.default_timer()
     print('Peak detection took ' + convertHMS(toc_outer - tic_outer))
 
+    # Compute peak phase
+    t = np.arange(len(data)) / fs
+    phase = SO_phase(data, fs)
+
+    # Compute peak phase
+    peak_interp = scipy.interpolate.interp1d(t, phase)
+    peak_phase = wrap_phase(peak_interp(stats_table['peak_time'].values))
+    stats_table['phase'] = peak_phase
+
     # Fix the stats_table to sort by time and reset labels
     del stats_table['label']
     stats_table.sort_values('peak_time')
     stats_table.reset_index()
 
-    # Plot post-merged network
-    # img_extent = stimes[0], stimes[len(stimes) - 1], sfreqs[len(sfreqs) - 1], sfreqs[0]
+    print('Writing stats_table to file...')
+    stats_table.to_csv('example_night.csv')
+    print('Done')
 
+    # Plot the scatter plot
     peak_size = stats_table['volume'] / 15
-    pmax = np.percentile(list(peak_size), 95)
+    pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
     peak_size[peak_size > pmax] = 0
 
-    x = [stats_table.peak_time - 2 * (stimes[1] - stimes[0])]
+    fig1 = plt.figure()
+
+    x = [stats_table.peak_time]
     y = [stats_table.peak_frequency]
-    plt.scatter(x, y, peak_size, facecolors='none', edgecolors='k')
+    c = [stats_table.phase]
+
+    plt.scatter(x, y, peak_size, c)
     plt.xlabel('Time (s)')
     plt.ylabel('Frequency (Hz)')
+    plt.colorbar()
+
+    # Shift the HSV colormap
+    hsv = plt.colormaps['hsv'].resampled(2 ** 12)
+    cm = colors.ListedColormap(hsv(np.roll(np.linspace(0, 1, 2 ** 12), -650)))
+    plt.set_cmap(cm)
 
     # Show Figures
     plt.show()
 
 
+def load_CSV():
+    stats_table = pd.read_csv('example_night.csv')
+
+    # Plot the scatter plot
+    peak_size = stats_table['volume'] / 100
+    pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
+    peak_size[peak_size > pmax] = 0
+
+    fig1 = plt.figure()
+
+    x = np.divide(stats_table.peak_time,3600)
+    y = [stats_table.peak_frequency]
+    c = [stats_table.phase]
+
+    plt.scatter(x, y, peak_size, c)
+    plt.xlabel('Time (s)')
+    plt.ylabel('Frequency (Hz)')
+
+    cbar = plt.colorbar()
+    # Shift the HSV colormap
+    hsv = plt.colormaps['hsv'].resampled(2 ** 12)
+    cm = colors.ListedColormap(hsv(np.roll(np.linspace(0, 1, 2 ** 12), -650)))
+    plt.set_cmap(cm)
+
+    cbar.set_ticks([-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
+    cbar.set_ticklabels(['-π', '-π/2', '0', 'π/2', 'π'])
+
+    plt.xlabel('Time (hrs)')
+    plt.ylabel('Frequency (Hz)')
+
+    plt.xlim(np.min(x), np.max(x))
+    plt.ylim(np.min(y), np.max(y))
+
+    plt.tight_layout
+    # Show Figures
+    plt.show()
+
+
 if __name__ == '__main__':
-    main()
+    load_CSV()
