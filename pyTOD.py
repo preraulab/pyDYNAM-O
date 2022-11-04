@@ -11,7 +11,7 @@ from joblib import Parallel, delayed, cpu_count
 from tqdm import tqdm
 from scipy import signal
 from matplotlib import colors
-import colorcet as cc
+import colorcet as cc  # It looks like this is not used, but it puts the colorcet cmaps in matplotlib
 import matplotlib.gridspec as gridspec
 
 

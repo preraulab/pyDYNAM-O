@@ -2,7 +2,7 @@ name: pyTOD
 channels:
   - conda-forge
 dependencies:
-  - librosa
+  - colorcet
   - matplotlib
   - numpy
   - pip
