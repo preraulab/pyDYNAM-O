@@ -840,8 +840,8 @@ def plot_figure():
     # Number of jobs to use
     n_jobs = max(cpu_count() - 1, 1)
 
-    # Limit frequencies from 4 to 30 Hz
-    frequency_range = [4, 30]
+    # Limit frequencies from 4 to 25 Hz
+    frequency_range = [4, 25]
 
     taper_params = [15, 29]  # Set taper params
     time_bandwidth = taper_params[0]  # Set time-half bandwidth
@@ -876,7 +876,7 @@ def plot_figure():
                            width_ratios=[.5, .5],
                            hspace=0.25, wspace=0.2,
                            left=0.1, right=0.90,
-                           bottom=0.05, top=0.98)
+                           bottom=0.05, top=0.95)
 
     ax1 = fig.add_subplot(gs[0, :])
     ax2 = fig.add_subplot(gs[1, :])
@@ -900,6 +900,7 @@ def plot_figure():
     plt.xticks([])
     im.set_cmap(plt.cm.get_cmap('cet_rainbow4'))
     outside_colorbar(fig, ax1, im, gap=0.01, shrink=0.8, label="Power (db)")
+    ax1.set_title('EEG Spectrogram')
 
     # Plot SO_power
     ax2.plot(np.divide(SO_power_times, 3600), SO_power)
@@ -928,6 +929,13 @@ def plot_figure():
 
     ax3.set_xlabel('Time (hrs)')
     ax3.set_ylabel('Frequency (Hz)')
+    ax3.set_title('Extracted Time-Frequency Peaks')
+
+    # SO-power Histogram
+    ax4.set_title('SO-power Histogram')
+
+    # SO-phase Histogram
+    ax5.set_title('SO-phase Histogram')
     plt.show()
 
 
