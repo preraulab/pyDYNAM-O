@@ -823,18 +823,24 @@ def run_TFpeak_extraction():
 
 
 def plot_figure():
+    # Load in raw data
+    print('Loading in raw data...', end=" ")
+    # EEG data
     stats_table = pd.read_csv('example_night.csv')
-    # Load in data
-    csv_data = pd.read_csv('data_night.csv', header=None)
-    data = np.array(csv_data[0]).astype(np.float32)
-
     # Sampling Frequency
     fs = 100
+    print('Done')
+
+    # Load in data
+    print('Loading in TF-peaks stats data...', end=" ")
+    csv_data = pd.read_csv('data_night.csv', header=None)
+    data = np.array(csv_data[0]).astype(np.float32)
+    print('Done')
 
     # Number of jobs to use
     n_jobs = max(cpu_count() - 1, 1)
 
-    # Limit frequencies from 0 to 25 Hz
+    # Limit frequencies from 4 to 30 Hz
     frequency_range = [4, 30]
 
     taper_params = [15, 29]  # Set taper params
@@ -864,7 +870,7 @@ def plot_figure():
 
     SO_power, SO_power_times = get_SO_power(data, fs, lowcut=0.3, highcut=1.5)
 
-    # %%
+    # %% Plot figure
     fig = plt.figure(figsize=(8, 11))
     gs = gridspec.GridSpec(nrows=4, ncols=2, height_ratios=[.2, .01, .2, .3],
                            width_ratios=[.5, .5],
