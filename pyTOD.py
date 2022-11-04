@@ -11,6 +11,8 @@ from joblib import Parallel, delayed, cpu_count
 from tqdm import tqdm
 from scipy import signal
 from matplotlib import colors
+import colorcet as cc
+import matplotlib.gridspec as gridspec
 
 
 def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: np.ndarray) -> float:
@@ -563,7 +565,54 @@ def butter_bandpass(lowcut, highcut, fs, order=50):
     return sos
 
 
-def SO_phase(data, fs, lowcut = 0.3, highcut = 1.5, order = 50) :
+def create_bins(range_start, range_end, bin_width, bin_step, bin_method='full'):
+    """Create bins allowing for various overlap and windowing schemes
+
+    :param bin_range: 1x2 array of start-stop values
+    :param bin_width: Bin width
+    :param bin_step: Bin step
+    :param bin_method: 'full' starts the first bin at bin_range[0]. 'partial' starts the first bin
+    with its bin center at bin_range(1) but ignores all values below bin_range[0]. 'full_extend' starts
+    the first bin at bin_range[0] - bin_width/2.Note that it is possible to get values outside of bin_range
+    with this setting.
+    :return: bin_edges, bin_centers
+    """
+    def arange_inc(a, b, step):
+        """Inclusive numpy arange
+
+        :param a: start
+        :param b: stop
+        :param step: step
+        :return: range
+        """
+        b += (lambda x: step * max(0.1, x) if x < 0.5 else 0)((lambda n: n - int(n))((b - a) / step + 1))
+        return np.arange(a, b, step)
+
+    bin_method = str.lower(bin_method)
+
+    if bin_method == 'full':
+        range_start_new = range_start + bin_width / 2
+        range_end_new = range_end - bin_width / 2
+
+        bin_centers = np.array(arange_inc(range_start_new, range_end_new, bin_step))
+        bin_edges = [bin_centers - bin_width/2, bin_centers + bin_width/2]
+    elif bin_method == 'partial':
+        bin_centers = np.array(arange_inc(range_start, range_end, bin_step))
+        bin_edges = np.maximum(np.minimum([bin_centers - bin_width / 2, bin_centers + bin_width / 2],
+                                          range_end), range_start)
+    elif bin_method == 'extend' or bin_method == 'full extend' or bin_method == 'full_extend':
+        range_start_new = range_start - np.floor((bin_width / 2) / bin_step) * bin_step
+        range_end_new = range_end + np.floor((bin_width / 2) / bin_step) * bin_step
+
+        bin_centers = np.array(arange_inc(range_start_new + (bin_width / 2), range_end_new - (bin_width / 2), bin_step))
+        bin_edges = [bin_centers - bin_width/2, bin_centers + bin_width/2]
+    else:
+        raise ValueError("bin_method should be full, partial, or extend")
+
+    return bin_edges, bin_centers
+
+
+def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=50):
     """Computes unwrapped slow oscillation phase
     Note: Phase is unwrapped because wrapping does not returne to original angle given the unwrapping algorithm
 
@@ -582,6 +631,42 @@ def SO_phase(data, fs, lowcut = 0.3, highcut = 1.5, order = 50) :
     return phase
 
 
+def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
+    """Computes slow oscillation power
+
+    :param data: EEG time series data
+    :param fs: Sampling frequency
+    :param lowcut: Bandpass low-end cutoff
+    :param highcut: Bandpass high-end cutoff
+    :return: SO_power, SOpow_times
+    """
+    frequency_range = [lowcut, highcut]
+
+    taper_params = [15, 29]  # Set taper params
+    time_bandwidth = taper_params[0]  # Set time-half bandwidth
+    num_tapers = taper_params[1]  # Set number of tapers (optimal is time_bandwidth*2 - 1)
+    window_params = [30, 10]  # Window size is 4s with step size of 1s
+    min_nfft = 0  # NFFT
+    detrend_opt = 'linear'  # constant detrend
+    multiprocess = True  # use multiprocessing
+    cpus = max(cpu_count() - 1, 1)  # use max cores in multiprocessing
+    weighting = 'unity'  # weight each taper at 1
+    plot_on = False  # plot spectrogram
+    clim_scale = False  # do not auto-scale colormap
+    verbose = False  # print extra info
+    xyflip = False  # do not transpose spect output matrix
+
+    # Compute the multitaper spectrogram
+    spect, SOpow_times, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
+                                                   window_params,
+                                                   min_nfft, detrend_opt, multiprocess, cpus,
+                                                   weighting, plot_on, clim_scale, verbose, xyflip)
+
+    df = sfreqs[1] - sfreqs[0]
+    SO_power = pow2db(np.sum(spect, axis=0)*df)
+    return SO_power, SOpow_times
+
+
 def wrap_phase(phase: np.ndarray) -> np.ndarray:
     """Wrap phase from -pi to pi
 
@@ -591,7 +676,16 @@ def wrap_phase(phase: np.ndarray) -> np.ndarray:
     return np.angle(np.exp(1j * phase))
 
 
-def main():
+def outside_colorbar(fig, ax, im, gap=0.01, shrink=1, label=""):
+    pos1 = ax.get_position().bounds
+    cbar = fig.colorbar(im, ax=ax, shrink=shrink, label=label)
+    ax.set_position(tuple(pos1))
+    cpos = cbar.ax.get_position().bounds
+    cbar.ax.set_position([pos1[0] + pos1[2] + gap, cpos[1], cpos[2], cpos[3]])
+    return cbar
+
+
+def run_TFpeak_extraction():
     # Number of jobs to use
     n_jobs = max(cpu_count() - 1, 1)
 
@@ -687,7 +781,7 @@ def main():
 
     # Compute peak phase
     t = np.arange(len(data)) / fs
-    phase = SO_phase(data, fs)
+    phase = get_SO_phase(data, fs)
 
     # Compute peak phase
     peak_interp = scipy.interpolate.interp1d(t, phase)
@@ -728,43 +822,112 @@ def main():
     plt.show()
 
 
-def load_CSV():
+def plot_figure():
     stats_table = pd.read_csv('example_night.csv')
+    # Load in data
+    csv_data = pd.read_csv('data_night.csv', header=None)
+    data = np.array(csv_data[0]).astype(np.float32)
+
+    # Sampling Frequency
+    fs = 100
+
+    # Number of jobs to use
+    n_jobs = max(cpu_count() - 1, 1)
+
+    # Limit frequencies from 0 to 25 Hz
+    frequency_range = [4, 30]
+
+    taper_params = [15, 29]  # Set taper params
+    time_bandwidth = taper_params[0]  # Set time-half bandwidth
+    num_tapers = taper_params[1]  # Set number of tapers (optimal is time_bandwidth*2 - 1)
+    window_params = [30, 10]  # Window size is 4s with step size of 1s
+    min_nfft = 0  # NFFT
+    detrend_opt = 'linear'  # constant detrend
+    multiprocess = True  # use multiprocessing
+    cpus = n_jobs  # use max cores in multiprocessing
+    weighting = 'unity'  # weight each taper at 1
+    plot_on = False  # plot spectrogram
+    clim_scale = False  # do not auto-scale colormap
+    verbose = True  # print extra info
+    xyflip = False  # do not transpose spect output matrix
+
+    # Compute the multitaper spectrogram
+    spect, stimes, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
+                                                   window_params,
+                                                   min_nfft, detrend_opt, multiprocess, cpus,
+                                                   weighting, plot_on, clim_scale, verbose, xyflip)
 
     # Plot the scatter plot
     peak_size = stats_table['volume'] / 100
     pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
     peak_size[peak_size > pmax] = 0
 
-    fig1 = plt.figure()
+    SO_power, SO_power_times = get_SO_power(data, fs, lowcut=0.3, highcut=1.5)
 
-    x = np.divide(stats_table.peak_time,3600)
+    # %%
+    fig = plt.figure(figsize=(8, 11))
+    gs = gridspec.GridSpec(nrows=4, ncols=2, height_ratios=[.2, .01, .2, .3],
+                           width_ratios=[.5, .5],
+                           hspace=0.25, wspace=0.2,
+                           left=0.1, right=0.90,
+                           bottom=0.05, top=0.98)
+
+    ax1 = fig.add_subplot(gs[0, :])
+    ax2 = fig.add_subplot(gs[1, :])
+    ax3 = fig.add_subplot(gs[2, :])
+    ax4 = fig.add_subplot(gs[3, 0])
+    ax5 = fig.add_subplot(gs[3, 1])
+
+    # Link axes
+    ax2.sharex(ax1)
+    ax3.sharex(ax1)
+    ax3.sharey(ax1)
+
+    # Plot spectrogram
+    extent = stimes[0]/3600, stimes[-1]/3600,   frequency_range[1], frequency_range[0]
+    plt.axes(ax1)
+    im = ax1.imshow(pow2db(spect), extent=extent, aspect='auto')
+    clims = np.percentile(pow2db(spect), [5, 98])
+    im.set_clim(clims[0], clims[1])
+    ax1.set_ylabel('Frequency (Hz)')
+    ax1.invert_yaxis()
+    plt.xticks([])
+    im.set_cmap(plt.cm.get_cmap('cet_rainbow4'))
+    outside_colorbar(fig, ax1, im, gap=0.01, shrink=0.8, label="Power (db)")
+
+    # Plot SO_power
+    ax2.plot(np.divide(SO_power_times, 3600), SO_power)
+    ax2.set_xlim([SO_power_times[0] / 3500, SO_power_times[-1] / 3600])
+    pos1 = ax1.get_position().bounds
+    pos2 = ax2.get_position().bounds
+    ax2.set_position([pos2[0], pos2[1], pos1[2], pos1[1] - pos2[1]])
+    ax2.set_xlabel('Time (hrs)')
+
+    # Plot scatter plot
+    x = np.divide(stats_table.peak_time, 3600)
     y = [stats_table.peak_frequency]
     c = [stats_table.phase]
 
-    plt.scatter(x, y, peak_size, c)
-    plt.xlabel('Time (s)')
-    plt.ylabel('Frequency (Hz)')
+    sp = ax3.scatter(x, y, peak_size, c, cmap='hsv')
+    ax3.set_xlim([stimes[0]/3500, stimes[-1] / 3600])
+    ax3.set_ylim(frequency_range)
 
-    cbar = plt.colorbar()
     # Shift the HSV colormap
     hsv = plt.colormaps['hsv'].resampled(2 ** 12)
-    cm = colors.ListedColormap(hsv(np.roll(np.linspace(0, 1, 2 ** 12), -650)))
-    plt.set_cmap(cm)
-
+    hsv_rot = colors.ListedColormap(hsv(np.roll(np.linspace(0, 1, 2 ** 12), -650)))
+    sp.set_cmap(hsv_rot)
+    cbar = outside_colorbar(fig, ax3, sp, gap=0.01, shrink=0.8, label="Phase (rad)")
     cbar.set_ticks([-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
     cbar.set_ticklabels(['-π', '-π/2', '0', 'π/2', 'π'])
 
-    plt.xlabel('Time (hrs)')
-    plt.ylabel('Frequency (Hz)')
-
-    plt.xlim(np.min(x), np.max(x))
-    plt.ylim(np.min(y), np.max(y))
-
-    plt.tight_layout
-    # Show Figures
+    ax3.set_xlabel('Time (hrs)')
+    ax3.set_ylabel('Frequency (Hz)')
     plt.show()
 
 
 if __name__ == '__main__':
-    load_CSV()
+    # # Extract TF-peaks from scratch
+    # run_TFpeak_extraction()
+
+    # Load full night extracted TF-peaks and plot figure so far
+    plot_figure()
