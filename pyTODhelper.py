@@ -77,10 +77,11 @@ def outside_colorbar(fig_obj, ax_obj, graphic_obj, gap=0.01, shrink=1, label="")
     :return: colorbar object
     """
 
-    ax_pos = ax_obj.get_position().bounds # Axis position
+    ax_pos = ax_obj.get_position().bounds  # Axis position
 
     # Create new colorbar and get position
     cbar = fig_obj.colorbar(graphic_obj, ax=ax_obj, shrink=shrink, label=label)
+    ax_obj.set_position(ax_pos)
     cbar_pos = cbar.ax.get_position().bounds
 
     # Set new colorbar position

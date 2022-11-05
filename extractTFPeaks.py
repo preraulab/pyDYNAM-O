@@ -536,18 +536,19 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     return stats_table
 
 
-def run_TFpeak_extraction():
+def run_TFpeak_extraction(data, fs, quality='fast'):
+    if data is None:
+        # Load in data
+        csv_data = pd.read_csv('data_night.csv', header=None)
+        data = np.array(csv_data[0]).astype(np.float32)
+
+        # Sampling Frequency
+        fs = 100
+
+    # %% COMPUTE MULTITAPER SPECTROGRAM
     # Number of jobs to use
     n_jobs = max(cpu_count() - 1, 1)
 
-    # Load in data
-    csv_data = pd.read_csv('data_night.csv', header=None)
-    data = np.array(csv_data[0]).astype(np.float32)
-
-    # Sampling Frequency
-    fs = 100
-
-    # %% COMPUTE MULTITAPER SPECTROGRAM
     # Limit frequencies from 0 to 25 Hz
     frequency_range = [0, 30]
 
@@ -596,12 +597,27 @@ def run_TFpeak_extraction():
     spect_baseline = np.divide(spect, baseline)
 
     # %% DETECT TF-PEAKS
+    if quality == 'paper':
+        downsample = []
+        segment_dur = 60
+        merge_thresh = 8
+    elif quality == 'precision':
+        downsample = []
+        segment_dur = 30
+        merge_thresh = 8
+    elif quality == 'fast':
+        downsample = [2, 2]
+        segment_dur = 30
+        merge_thresh = 11
+    elif quality == 'draft':
+        downsample = [5, 1]
+        segment_dur = 30
+        merge_thresh = 13
+    else:
+        raise ValueError("Specify settings 'precision', 'fast', or 'draft'")
 
     # Set TF-peak detection settings
-    merge_thresh = 11
     trim_vol = 0.8
-    segment_dur = 30  # Segment time in seconds
-    downsample = [2, 2]
     max_merges = 500
     plot_on = False
     verbose = False
