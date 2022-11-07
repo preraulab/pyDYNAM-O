@@ -262,7 +262,7 @@ def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=[], freq_win
             SOphase_hist[:, p_bin] = 0
 
     # Normalize
-    SOphase_hist = SOphase_hist / SOphase_hist.sum(axis=1, keepdims=1)
+    SOphase_hist = SOphase_hist / np.nansum(SOphase_hist, axis=1)[:, np.newaxis]
 
     return SOphase_hist, freq_cbins, phase_cbins
 
