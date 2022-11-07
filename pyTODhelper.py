@@ -1,5 +1,6 @@
 import numpy as np
-
+from itertools import groupby
+from matplotlib.patches import Rectangle
 
 def convertHMS(seconds: float) -> str:
     """Converts seconds to HH:MM:SS string
@@ -88,3 +89,45 @@ def outside_colorbar(fig_obj, ax_obj, graphic_obj, gap=0.01, shrink=1, label="")
     cbar.ax.set_position([ax_pos[0] + ax_pos[2] + gap, cbar_pos[1], cbar_pos[2], cbar_pos[3]])
 
     return cbar
+
+def hypnoplot(time, stage, ax=None, plot_buffer=0.8):
+    """Plots the hypnogram
+
+    :param time: Stage times
+    :param stage: Stage values 6:art, 5:W, 4:R, 3:N1, 2:N2, 1:N3, 0:Unknown
+    :param ax: axis for plotting
+    :param plot_buffer: how much space above/below
+    :return:
+    """
+    def consecutive(stage_vals):
+        vals = [v[0] for v in groupby(stage_vals)]
+        cons = [sum(1 for i in g) for v, g in groupby(stage_vals)]
+
+        start_inds = np.cumsum(cons) - 1
+        end_inds = start_inds + cons
+
+        return list(zip(vals, start_inds, end_inds))
+
+    if ax is None:
+        ax = plt.axes()
+
+    ax.step(time, stage, 'k-', where='post')
+    ax.set_yticks([0, 1, 2, 3, 4, 5, 6], ['Undef', 'N3', 'N2', 'N1', 'R', 'W', 'Art'])
+    ylim = (np.min(stage) - plot_buffer, np.max(stage) + plot_buffer)
+    ax.set_ylim(ylim)
+
+    ptime = np.append(time, time[-1])
+
+    for c in consecutive(stage):
+        if c[0] == 0:
+            color = (.9, .9, .9)
+        elif 1 <= c[0] <= 3:
+            color = (.8, .8, 1)
+        elif c[0] == 4:
+            color = (.7, 1, .7)
+        elif c[0] == 5:
+            color = (1, .7, .7)
+        else:
+            color = (.6, .6, .6)
+
+        ax.add_patch(Rectangle((ptime[c[1]], ylim[0]), ptime[c[2]] - ptime[c[1]], ylim[1] - ylim[0], facecolor=color))
