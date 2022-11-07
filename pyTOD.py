@@ -4,11 +4,11 @@ import numpy as np
 import pandas as pd
 from joblib import cpu_count
 from matplotlib import colors
-from scipy import signal
+from scipy import signal, interpolate
 import colorcet  # It looks like this is not used, but it puts the colorcet cmaps in matplotlib
 from extractTFPeaks import pow2db
 from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
-from pyTODhelper import outside_colorbar
+from pyTODhelper import outside_colorbar, create_bins
 
 
 def butter_bandpass(lowcut, highcut, fs, order=50):
@@ -25,6 +25,15 @@ def butter_bandpass(lowcut, highcut, fs, order=50):
     high = highcut / nyq
     sos = signal.butter(order, [low, high], btype='band', output='sos')
     return sos
+
+
+def wrap_phase(phase: np.ndarray) -> np.ndarray:
+    """Wrap phase from -pi to pi
+
+    :param phase: Unwrapped phase
+    :return: Wrapped phase
+    """
+    return np.angle(np.exp(1j * phase))
 
 
 def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=50):
@@ -82,28 +91,195 @@ def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
     return SO_power, SOpow_times
 
 
-def wrap_phase(phase: np.ndarray) -> np.ndarray:
-    """Wrap phase from -pi to pi
+def SO_power_histogram(peak_times, peak_freqs, data, fs, freq_range, freq_window,
+                       SO_range, SO_window, norm_method='percent', min_time_in_bin=1, verbose=True):
+    SO_power, SOpow_times = get_SO_power(data, fs, lowcut=0.3, highcut=1.5)
 
-    :param phase: Unwrapped phase
-    :return: Wrapped phase
-    """
-    return np.angle(np.exp(1j * phase))
+    # Normalize  power
+    if not freq_range:
+        freq_range = []
+    if type(norm_method) == float:
+        shift_ptile = norm_method
+        norm_method = 'shift'
+    else:
+        shift_ptile = 5
+
+    if norm_method == 'percentile' or norm_method == 'percent':
+        low_val = 1
+        high_val = 99
+        ptile = np.percentile(SO_power, [low_val, high_val])
+        SO_power_norm = SO_power - ptile[0]
+        SO_power_norm = np.divide(SO_power_norm, (ptile[1] - ptile[0])) * 100
+    elif norm_method == 'shift' or norm_method == 'p5shift':
+        ptile = np.percentile(SO_power, [shift_ptile])
+        SO_power_norm = np.subtract(SO_power, ptile)
+    elif norm_method == 'absolute' or norm_method == 'none':
+        SO_power_norm = SO_power
+    else:
+        raise ValueError("Not a valid normalization option, choose 'p5shift', 'percent', or 'none'")
+
+    if not freq_range:
+        freq_range = [np.min(peak_freqs), np.max(peak_freqs)]
+
+    if not freq_window:
+        freq_window = [(freq_range[1] - freq_range[0]) / 25, (freq_range[1] - freq_range[0]) / 100]
+
+    freq_bin_edges, freq_cbins = create_bins(freq_range[0], freq_range[1], freq_window[0], freq_window[1], 'partial')
+    num_freqbins = len(freq_cbins)
+
+    if not SO_range:
+        SO_range = [np.min(SO_power_norm), np.max(SO_power_norm)]
+
+    if not SO_window:
+        SO_window = [(SO_range[1] - SO_range[0]) / 25, (SO_range[1] - SO_range[0]) / 100]
+
+    SO_bin_edges, SO_cbins = create_bins(SO_range[0], SO_range[1], SO_window[0], SO_window[1], 'partial')
+    num_SObins = len(SO_cbins)
+
+    if verbose:
+        print('  SO-Power Histogram Settings:')
+        print('    Normalization Method: ' + str(norm_method))
+        print('    Frequency Window Size: ' + str(freq_window[0]) + ' Hz, Window Step: ' + str(freq_window[1]) + ' Hz')
+        print('    Frequency Range: ', str(freq_range[0]) + '-' + str(freq_range[1]) + ' Hz')
+        print('    SO-Power Window Size: ' + str(SO_window[0]) + ', Window Step: ' + str(SO_window[1]))
+        print('    SO-Power Range: ' + str(SO_range[0]) + '-', str(SO_range[1]))
+        print('    Minimum time required in each SO-Power bin: ' + str(min_time_in_bin) + ' min')
+
+    # Initialize SO_pow x freq matrix
+    SOpow_hist = np.empty(shape=(num_freqbins, num_SObins)) * np.nan
+
+    # Initialize time in bin
+    time_in_bin = np.zeros((num_SObins, 1))
+    prop_in_bin = np.zeros((num_SObins, 1))
+
+    # Compute peak phase
+    pow_interp = interpolate.interp1d(SOpow_times, SO_power_norm, fill_value="extrapolate")
+    peak_SOpow = pow_interp(peak_times)
+
+    for s_bin in range(num_SObins):
+        TIB_inds = np.logical_and(SO_power_norm >= SO_bin_edges[0, s_bin], SO_power_norm < SO_bin_edges[1, s_bin])
+        SO_inds = np.logical_and(peak_SOpow >= SO_bin_edges[0, s_bin], peak_SOpow < SO_bin_edges[1, s_bin])
+
+        time_in_bin[s_bin] = (np.sum(TIB_inds) * (SOpow_times[1] - SOpow_times[0])) / 60
+
+        if time_in_bin[s_bin] < min_time_in_bin:
+            continue
+
+        if np.sum(SO_inds):
+            for f_bin in range(num_freqbins):
+                # Get indices in freq bin
+                freq_inds = np.logical_and(peak_freqs >= freq_bin_edges[0, f_bin],
+                                           peak_freqs < freq_bin_edges[1, f_bin])
+
+                # Fill histogram with count of peaks in this freq / SOpow bin
+                SOpow_hist[f_bin, s_bin] = np.sum(SO_inds & freq_inds) / time_in_bin[s_bin]
+        else:
+            SOpow_hist[:, s_bin] = 0
+
+    return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SOpow_times
+
+
+def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=[], freq_window=[],
+                       phase_range=[], phase_window=[], min_time_in_bin=1, verbose=True):
+    SO_phase = wrap_phase(get_SO_phase(data, fs, lowcut=0.3, highcut=1.5))
+
+    # Normalize  power
+    if not freq_range:
+        freq_range = []
+
+    if not freq_range:
+        freq_range = [np.min(peak_freqs), np.max(peak_freqs)]
+
+    if not freq_window:
+        freq_window = [(freq_range[1] - freq_range[0]) / 25, (freq_range[1] - freq_range[0]) / 100]
+
+    freq_bin_edges, freq_cbins = create_bins(freq_range[0], freq_range[1],
+                                             freq_window[0], freq_window[1], 'partial')
+    num_freqbins = len(freq_cbins)
+
+    if not phase_range:
+        phase_range = [-np.pi, np.pi]
+
+    if not phase_window:
+        phase_window = [(2 * np.pi) / 5, (2 * np.pi) / 100]
+
+    phase_bin_edges, phase_cbins = create_bins(phase_range[0], phase_range[1],
+                                               phase_window[0], phase_window[1], 'extend')
+    num_phasebins = len(phase_cbins)
+
+    if verbose:
+        print('  SO-Power Histogram Settings:')
+        print('    Frequency Window Size: ' + str(freq_window[0]) + ' Hz, Window Step: ' + str(freq_window[1]) + ' Hz')
+        print('    Frequency Range: ', str(freq_range[0]) + '-' + str(freq_range[1]) + ' Hz')
+        print('    SO-Power Window Size: ' + str(phase_window[0]) + ', Window Step: ' + str(phase_window[1]))
+        print('    SO-Power Range: ' + str(phase_range[0]) + '-', str(phase_range[1]))
+        print('    Minimum time required in each phase bin: ' + str(min_time_in_bin) + ' min')
+
+    # Initialize SO_pow x freq matrix
+    SOphase_hist = np.empty(shape=(num_freqbins, num_phasebins)) * np.nan
+
+    # Initialize time in bin
+    time_in_bin = np.zeros((num_phasebins, 1))
+    prop_in_bin = np.zeros((num_phasebins, 1))
+
+    # Compute peak phase
+    pow_interp = interpolate.interp1d(np.arange(len(data)) / fs, SO_phase, fill_value="extrapolate")
+    peak_SOphase = pow_interp(peak_times)
+
+    for p_bin in range(num_phasebins):
+        if phase_bin_edges[0, p_bin] <= -np.pi:
+            wrapped_edge_lowlim = phase_bin_edges[0, p_bin] + (2 * np.pi)
+            TIB_inds = np.logical_or(SO_phase >= wrapped_edge_lowlim,
+                                     SO_phase < phase_bin_edges[1, p_bin])
+            phase_inds = np.logical_or(peak_SOphase >= wrapped_edge_lowlim,
+                                       peak_SOphase < phase_bin_edges[1, p_bin])
+        elif phase_bin_edges[1, p_bin] >= np.pi:
+            wrapped_edge_highlim = phase_bin_edges[1, p_bin] - (2 * np.pi)
+            TIB_inds = np.logical_or(SO_phase < wrapped_edge_highlim,
+                                     SO_phase >= phase_bin_edges[0, p_bin])
+            phase_inds = np.logical_or(peak_SOphase < wrapped_edge_highlim,
+                                       peak_SOphase >= phase_bin_edges[0, p_bin])
+        else:
+            TIB_inds = np.logical_and(SO_phase >= phase_bin_edges[0, p_bin],
+                                      SO_phase < phase_bin_edges[1, p_bin])
+            phase_inds = np.logical_and(peak_SOphase >= phase_bin_edges[0, p_bin],
+                                     peak_SOphase < phase_bin_edges[1, p_bin])
+
+        time_in_bin[p_bin] = (np.sum(TIB_inds) * (1/fs) / 60)
+
+        if time_in_bin[p_bin] < min_time_in_bin:
+            continue
+
+        if np.sum(phase_inds):
+            for f_bin in range(num_freqbins):
+                # Get indices in freq bin
+                freq_inds = np.logical_and(peak_freqs >= freq_bin_edges[0, f_bin],
+                                           peak_freqs < freq_bin_edges[1, f_bin])
+
+                # Fill histogram with count of peaks in this freq / SOpow bin
+                SOphase_hist[f_bin, p_bin] = np.sum(phase_inds & freq_inds) / time_in_bin[p_bin]
+        else:
+            SOphase_hist[:, p_bin] = 0
+
+    # Normalize
+    SOphase_hist = SOphase_hist / SOphase_hist.sum(axis=1, keepdims=1)
+
+    return SOphase_hist, freq_cbins, phase_cbins
 
 
 def plot_figure():
-    # Load in raw data
+    # Load in data
     print('Loading in raw data...', end=" ")
     # EEG data
-    stats_table = pd.read_csv('example_night.csv')
+    csv_data = pd.read_csv('data_night.csv', header=None)
+    data = np.array(csv_data[0]).astype(np.float32)
     # Sampling Frequency
     fs = 100
     print('Done')
 
-    # Load in data
+    # Load in stats table of peak data
     print('Loading in TF-peaks stats data...', end=" ")
-    csv_data = pd.read_csv('data_night.csv', header=None)
-    data = np.array(csv_data[0]).astype(np.float32)
+    stats_table = pd.read_csv('example_night.csv')
     print('Done')
 
     # Number of jobs to use
@@ -123,27 +299,40 @@ def plot_figure():
     weighting = 'unity'  # weight each taper at 1
     plot_on = False  # plot spectrogram
     clim_scale = False  # do not auto-scale colormap
-    verbose = True  # print extra info
+    verbose = False  # print extra info
     xyflip = False  # do not transpose spect output matrix
 
     # Compute the multitaper spectrogram
+    print('Computing visualization spectrogram...', end=" ")
     spect, stimes, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
                                                    window_params,
                                                    min_nfft, detrend_opt, multiprocess, cpus,
                                                    weighting, plot_on, clim_scale, verbose, xyflip)
+    print('Done')
 
     # Plot the scatter plot
     peak_size = stats_table['volume'] / 100
     pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
     peak_size[peak_size > pmax] = 0
 
-    SO_power, SO_power_times = get_SO_power(data, fs, lowcut=0.3, highcut=1.5)
+    print('Computing SO-Power Histogram...', end=" ")
+    SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times = \
+        SO_power_histogram(stats_table['peak_time'].values, stats_table['peak_frequency'].values,
+                           data, fs, freq_range=[4, 25], freq_window=[1, 0.2],
+                           SO_range=[0, 70], SO_window=[20, 1], norm_method='percent')
+    print('Done')
 
-    # %% Plot figure
-    fig = plt.figure(figsize=(8, 11))
+    print('Computing SO-Phase Histogram...', end=" ")
+    SOphase_hist, freq_cbins, phase_cbins = \
+        SO_phase_histogram(stats_table['peak_time'].values, stats_table['peak_frequency'].values,
+                           data, fs, freq_range=[4, 25], freq_window=[1, 0.2])
+    print('Done')
+
+    # %  Plot figure
+    fig = plt.figure(figsize=(8.5 * .8, 11 * .8))
     gs = gridspec.GridSpec(nrows=4, ncols=2, height_ratios=[.2, .01, .2, .3],
                            width_ratios=[.5, .5],
-                           hspace=0.25, wspace=0.2,
+                           hspace=0.3, wspace=0.5,
                            left=0.1, right=0.90,
                            bottom=0.05, top=0.95)
 
@@ -172,7 +361,7 @@ def plot_figure():
     ax1.set_title('EEG Spectrogram')
 
     # Plot SO_power
-    ax2.plot(np.divide(SO_power_times, 3600), SO_power)
+    ax2.plot(np.divide(SO_power_times, 3600), SO_power_norm)
     ax2.set_xlim([SO_power_times[0] / 3500, SO_power_times[-1] / 3600])
     pos1 = ax1.get_position().bounds
     pos2 = ax2.get_position().bounds
@@ -202,9 +391,31 @@ def plot_figure():
 
     # SO-power Histogram
     ax4.set_title('SO-power Histogram')
+    extent = SO_cbins[0], SO_cbins[-1], freq_cbins[-1], freq_cbins[0]
+    plt.axes(ax4)
+    im = ax4.imshow(SOpow_hist, extent=extent, aspect='auto')
+    clims = np.percentile(SOpow_hist, [5, 98])
+    im.set_clim(clims[0], clims[1])
+    ax4.set_ylabel('Frequency (Hz)')
+    ax4.invert_yaxis()
+    im.set_cmap(plt.cm.get_cmap('cet_gouldian'))
+    outside_colorbar(fig, ax4, im, gap=0.01, shrink=0.6, label="Density")
+    ax4.set_xlabel('% SO-Power')
 
     # SO-phase Histogram
-    ax5.set_title('SO-phase Histogram')
+    ax5.set_title('SO-power Histogram')
+    extent = phase_cbins[0], phase_cbins[-1], freq_cbins[-1], freq_cbins[0]
+    plt.axes(ax5)
+    im = ax5.imshow(SOphase_hist, extent=extent, aspect='auto')
+    clims = np.percentile(SOphase_hist, [5, 98])
+    im.set_clim(clims[0], clims[1])
+    ax5.set_ylabel('Frequency (Hz)')
+    ax5.invert_yaxis()
+    im.set_cmap(plt.cm.get_cmap('magma'))
+    outside_colorbar(fig, ax5, im, gap=0.01, shrink=0.6, label="Proportion")
+    plt.xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi], ['-π', '-π/2', '0', 'π/2', 'π'])
+    plt.xlabel('SO-Phase (rad)')
+
     plt.show()
 
 

@@ -48,7 +48,7 @@ def create_bins(range_start: float, range_end: float, bin_width: float, bin_step
         range_end_new = range_end - bin_width / 2
 
         bin_centers = np.array(arange_inc(range_start_new, range_end_new, bin_step))
-        bin_edges = [bin_centers - bin_width / 2, bin_centers + bin_width / 2]
+        bin_edges = np.vstack([bin_centers - bin_width / 2, bin_centers + bin_width / 2])
     elif bin_method == 'partial':
         bin_centers = np.array(arange_inc(range_start, range_end, bin_step))
         bin_edges = np.maximum(np.minimum([bin_centers - bin_width / 2, bin_centers + bin_width / 2],
@@ -58,7 +58,7 @@ def create_bins(range_start: float, range_end: float, bin_width: float, bin_step
         range_end_new = range_end + np.floor((bin_width / 2) / bin_step) * bin_step
 
         bin_centers = np.array(arange_inc(range_start_new + (bin_width / 2), range_end_new - (bin_width / 2), bin_step))
-        bin_edges = [bin_centers - bin_width / 2, bin_centers + bin_width / 2]
+        bin_edges = np.vstack([bin_centers - bin_width / 2, bin_centers + bin_width / 2])
     else:
         raise ValueError("bin_method should be full, partial, or extend")
 
