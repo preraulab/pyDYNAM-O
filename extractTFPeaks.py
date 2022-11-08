@@ -222,15 +222,6 @@ def nn_resample(data: np.ndarray, shape: tuple) -> np.ndarray:
                 per_axis(data.shape[1], shape[1])]
 
 
-def pow2db(val):
-    """
-    Converts power to dB
-    :param val: values to convert
-    :return: val_dB value in dB
-    """
-    return (10 * np.log10(val) + 300) - 300
-
-
 def process_segments_params(segment_dur: float, stimes: np.ndarray):
     """Gets parameters for segmenting the spectrogram
 
@@ -539,7 +530,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 def run_TFpeak_extraction(data, fs, quality='fast'):
     if data is None:
         # Load in data
-        csv_data = pd.read_csv('data_night.csv', header=None)
+        csv_data = pd.read_csv('python_tests/data_night.csv', header=None)
         data = np.array(csv_data[0]).astype(np.float32)
 
         # Sampling Frequency

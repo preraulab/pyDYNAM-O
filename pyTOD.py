@@ -1,3 +1,5 @@
+import copy
+
 import matplotlib.gridspec as gridspec
 import matplotlib.pyplot as plt
 from matplotlib import colors
@@ -6,9 +8,8 @@ import pandas as pd
 from joblib import cpu_count
 from scipy import signal, interpolate
 import colorcet  # It looks like this is not used, but it puts the colorcet cmaps in matplotlib
-from extractTFPeaks import pow2db
 from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
-from pyTODhelper import outside_colorbar, create_bins, hypnoplot
+from pyTODhelper import *
 
 
 def butter_bandpass(lowcut, highcut, fs, order=50):
@@ -25,6 +26,37 @@ def butter_bandpass(lowcut, highcut, fs, order=50):
     high = highcut / nyq
     sos = signal.butter(order, [low, high], btype='band', output='sos')
     return sos
+
+
+def butter_highpass(lowcut, fs, order=50):
+    """Performs a zero-phase butterworth bandpass filter on SOS
+
+    :param lowcut: Low-end frequency cutoff
+    :param fs: Sampling Frequency
+    :param order: Filter order
+    :return: Filtered data
+    """
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    sos = signal.butter(order, low, btype='hp', output='sos')
+    return sos
+
+
+def detect_artifacts(data, fs, hf_cut=25, bb_cut=0.1, detrend_cut=0.001, crit_high=5.5, crit_broad=5.5,
+                     smooth_duration=2):
+    highfilt = butter_highpass(hf_cut, fs, order=50)
+    broadfilt = butter_highpass(bb_cut, fs, order=50)
+    detrendfilt = butter_highpass(detrend_cut, fs, order=50)
+
+    data_high = signal.sosfiltfilt(highfilt, data)
+    data_broad = signal.sosfiltfilt(broadfilt, data)
+
+    bad_inds = np.abs(nan_zscore(data)) > 10 | np.isnan(data) | np.isinf(data) | find_flat(data)
+
+    hf_artifacts = zscore_remove(data_high, crit_high, detrendfilt, bad_inds, smooth_dur=smooth_duration * fs)
+    bb_artifacts = zscore_remove(data_broad, crit_broad, detrendfilt, bad_inds, smooth_dur=smooth_duration * fs)
+
+    return np.logical_or(hf_artifacts, bb_artifacts)
 
 
 def wrap_phase(phase: np.ndarray) -> np.ndarray:
@@ -91,9 +123,12 @@ def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
     return SO_power, SOpow_times
 
 
-def SO_power_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_window=None,
+def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=None, freq_window=None,
                        SO_range=None, SO_window=None, norm_method='percent', min_time_in_bin=1, verbose=True):
-    SO_power, SOpow_times = get_SO_power(data, fs, lowcut=0.3, highcut=1.5)
+
+    good_data = copy.deepcopy(data)
+    good_data[artifacts] = np.nan
+    SO_power, SOpow_times = get_SO_power(good_data, fs, lowcut=0.3, highcut=1.5)
 
     # Normalize  power
     if type(norm_method) == float:
@@ -105,7 +140,7 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
     if norm_method == 'percentile' or norm_method == 'percent':
         low_val = 1
         high_val = 99
-        ptile = np.percentile(SO_power, [low_val, high_val])
+        ptile = np.percentile(SO_power[~np.isnan(SO_power)], [low_val, high_val])
         SO_power_norm = SO_power - ptile[0]
         SO_power_norm = np.divide(SO_power_norm, (ptile[1] - ptile[0])) * 100
     elif norm_method == 'shift' or norm_method == 'p5shift':
@@ -150,8 +185,9 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
     time_in_bin = np.zeros((num_SObins, 1))
     prop_in_bin = np.zeros((num_SObins, 1))
 
+    inds = ~np.isnan(SO_power_norm)
     # Compute peak phase
-    pow_interp = interpolate.interp1d(SOpow_times, SO_power_norm, fill_value="extrapolate")
+    pow_interp = interpolate.interp1d(SOpow_times[inds], SO_power_norm[inds], fill_value="extrapolate")
     peak_SOpow = pow_interp(peak_times)
 
     for s_bin in range(num_SObins):
@@ -220,7 +256,8 @@ def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
     prop_in_bin = np.zeros((num_phasebins, 1))
 
     # Compute peak phase
-    pow_interp = interpolate.interp1d(np.arange(len(data)) / fs, SO_phase, fill_value="extrapolate")
+    inds = ~np.isnan(SO_phase)
+    pow_interp = interpolate.interp1d(np.arange(len(data[inds])) / fs, SO_phase[inds], fill_value="extrapolate")
     peak_SOphase = pow_interp(peak_times)
 
     for p_bin in range(num_phasebins):
@@ -271,6 +308,7 @@ def plot_figure():
     csv_data = pd.read_csv('data_night.csv', header=None)
     data = np.array(csv_data[0]).astype(np.float32)
     stages = pd.read_csv('example_stages.csv')
+    stages.Time -= 3180
 
     # Sampling Frequency
     fs = 100
@@ -280,6 +318,15 @@ def plot_figure():
     print('Loading in TF-peaks stats data...', end=" ")
     stats_table = pd.read_csv('example_night.csv')
     print('Done')
+
+    artifacts = detect_artifacts(data, fs)
+
+    # Compute peak phase
+    stage_interp = interpolate.interp1d(stages.Time.values, stages.Stage.values, kind='previous',
+                                        fill_value="extrapolate")
+    # Compute peak stage
+    peak_stages = stage_interp(stats_table['peak_time'])
+    stats_table['stage'] = peak_stages
 
     # Number of jobs to use
     n_jobs = max(cpu_count() - 1, 1)
@@ -317,8 +364,8 @@ def plot_figure():
     print('Computing SO-Power Histogram...', end=" ")
     SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times = \
         SO_power_histogram(stats_table['peak_time'].values, stats_table['peak_frequency'].values,
-                           data, fs, freq_range=[4, 25], freq_window=[1, 0.2],
-                           SO_range=[0, 70], SO_window=[20, 1], norm_method='percent', verbose=False)
+                           data, fs, artifacts, freq_range=[4, 25], freq_window=[1, 0.2],
+                           SO_range=[0, 100], SO_window=[20, 1], norm_method='percent', verbose=False)
     print('Done')
 
     print('Computing SO-Phase Histogram...', end=" ")
@@ -354,7 +401,7 @@ def plot_figure():
     pos0 = ax0.get_position().bounds
     pos1 = ax1.get_position().bounds
     pos2 = ax2.get_position().bounds
-    ax0.set_position([pos1[0], pos1[1]+pos1[3], pos0[2], pos1[1] - pos2[1]])
+    ax0.set_position([pos1[0], pos1[1] + pos1[3], pos0[2], pos1[1] - pos2[1]])
     ax2.set_position([pos2[0], pos2[1], pos1[2], pos1[1] - pos2[1]])
 
     # Plot hypnogram
@@ -367,7 +414,7 @@ def plot_figure():
     extent = stimes[0] / 3600, stimes[-1] / 3600, frequency_range[1], frequency_range[0]
     plt.axes(ax1)
     im = ax1.imshow(pow2db(spect), extent=extent, aspect='auto')
-    clims = np.percentile(pow2db(spect), [5, 98])
+    clims = np.percentile(pow2db(spect[~np.isnan(spect)]), [5, 98])
     im.set_clim(clims[0], clims[1])
     ax1.set_ylabel('Frequency (Hz)')
     ax1.invert_yaxis()
@@ -378,7 +425,7 @@ def plot_figure():
     cbar.ax.tick_params(labelsize=7)
 
     # Plot SO_power
-    ax2.plot(np.divide(SO_power_times, 3600), SO_power_norm)
+    ax2.plot(np.divide(SO_power_times, 3600), SO_power_norm, 'b', linewidth=1)
     ax2.set_xlim([SO_power_times[0] / 3500, SO_power_times[-1] / 3600])
     ax2.set_xlabel('Time (hrs)')
 

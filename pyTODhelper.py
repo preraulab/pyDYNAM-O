@@ -1,6 +1,68 @@
 import numpy as np
 from itertools import groupby
 from matplotlib.patches import Rectangle
+from scipy import signal
+
+
+def nan_zscore(data):
+    # Compute modified z-score
+    mid = np.mean(data)
+    std = np.std(data)
+
+    return (data - mid) / std
+
+
+def pow2db(y):
+    """
+    Converts power to dB
+    :param y: values to convert
+    :return: val_dB value in dB
+    """
+
+    if isinstance(y, int) or isinstance(y, float):
+        if y == 0:
+            return np.nan
+        else:
+            ydB = (10 * np.log10(y) + 300) - 300
+    else:
+        if isinstance(y, list):  # if list, turn into array
+            y = np.asarray(y)
+        y = y.astype(float)  # make sure it's a float array so we can put nans in it
+        y[y == 0] = np.nan
+        ydB = (10 * np.log10(y) + 300) - 300
+
+    return ydB
+
+
+def zscore_remove(data, crit, filt_obj, bad_inds, smooth_dur=2):
+    signal_envelope = np.abs(signal.hilbert(data))
+    envelope_smooth = np.log(np.convolve(signal_envelope, np.ones(smooth_dur), 'same') / smooth_dur)
+    # envelope = signal.sosfiltfilt(filt_obj, envelope_smooth)
+    envelope = nan_zscore(envelope_smooth)
+
+    if bad_inds is None:
+        detected_artifacts = np.full(len(envelope), False)
+    else:
+        detected_artifacts = bad_inds
+
+    over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
+
+    c = 1
+    while np.any(over_crit):
+        detected_artifacts[over_crit] = True
+        # Remove artifacts from the signal
+        ysig = envelope[~detected_artifacts]
+        ymid = np.nanmean(ysig)
+        ystd = np.nanstd(ysig)
+        envelope = (envelope - ymid) / ystd
+
+        # Find new criterion
+        over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
+
+        c += 1
+
+    return detected_artifacts
+
 
 def convertHMS(seconds: float) -> str:
     """Converts seconds to HH:MM:SS string
@@ -90,6 +152,26 @@ def outside_colorbar(fig_obj, ax_obj, graphic_obj, gap=0.01, shrink=1, label="")
 
     return cbar
 
+
+def consecutive(val):
+    vals = [v[0] for v in groupby(val)]
+    cons = [sum(1 for i in g) for v, g in groupby(val)]
+
+    start_inds = np.cumsum(np.insert(cons, 0, 0))
+    end_inds = np.add(start_inds[0:-1], cons)
+
+    return list(zip(vals, start_inds, end_inds))
+
+
+def find_flat(data, minsize=100):
+    inds = np.full((len(data)), False)
+    for c in consecutive(data):
+        if c[2] - c[1] >= minsize:
+            inds[c[1]:c[2]] = True
+
+    return inds
+
+
 def hypnoplot(time, stage, ax=None, plot_buffer=0.8):
     """Plots the hypnogram
 
@@ -99,15 +181,6 @@ def hypnoplot(time, stage, ax=None, plot_buffer=0.8):
     :param plot_buffer: how much space above/below
     :return:
     """
-    def consecutive(stage_vals):
-        vals = [v[0] for v in groupby(stage_vals)]
-        cons = [sum(1 for i in g) for v, g in groupby(stage_vals)]
-
-        start_inds = np.cumsum(cons) - 1
-        end_inds = start_inds + cons
-
-        return list(zip(vals, start_inds, end_inds))
-
     if ax is None:
         ax = plt.axes()
 
