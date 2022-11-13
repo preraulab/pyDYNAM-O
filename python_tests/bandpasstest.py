@@ -27,7 +27,7 @@ def wrap_phase(phase):
     return np.angle(np.exp(1j * phase))
 
 
-csv_data = pd.read_csv('data_segment.csv', header=None)
+csv_data = pd.read_csv('../data_segment.csv', header=None)
 
 # Get test data from the CSV file
 fs = 100

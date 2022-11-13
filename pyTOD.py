@@ -10,6 +10,7 @@ from scipy import signal, interpolate
 import colorcet  # It looks like this is not used, but it puts the colorcet cmaps in matplotlib
 from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
 from pyTODhelper import *
+from extractTFPeaks import *
 
 
 def butter_bandpass(lowcut, highcut, fs, order=50):
@@ -129,6 +130,7 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
     good_data = copy.deepcopy(data)
     good_data[artifacts] = np.nan
     SO_power, SOpow_times = get_SO_power(good_data, fs, lowcut=0.3, highcut=1.5)
+    inds = ~np.isnan(SO_power)
 
     # Normalize  power
     if type(norm_method) == float:
@@ -140,11 +142,11 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
     if norm_method == 'percentile' or norm_method == 'percent':
         low_val = 1
         high_val = 99
-        ptile = np.percentile(SO_power[~np.isnan(SO_power)], [low_val, high_val])
+        ptile = np.percentile(SO_power[inds], [low_val, high_val])
         SO_power_norm = SO_power - ptile[0]
         SO_power_norm = np.divide(SO_power_norm, (ptile[1] - ptile[0])) * 100
     elif norm_method == 'shift' or norm_method == 'p5shift':
-        ptile = np.percentile(SO_power, [shift_ptile])
+        ptile = np.percentile(SO_power[inds], [shift_ptile])
         SO_power_norm = np.subtract(SO_power, ptile)
     elif norm_method == 'absolute' or norm_method == 'none':
         SO_power_norm = SO_power
@@ -161,7 +163,7 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
     num_freqbins = len(freq_cbins)
 
     if SO_range is None:
-        SO_range = [np.min(SO_power_norm), np.max(SO_power_norm)]
+        SO_range = [np.min(SO_power_norm[inds]), np.max(SO_power_norm[inds])]
 
     if SO_window is None:
         SO_window = [(SO_range[1] - SO_range[0]) / 5, (SO_range[1] - SO_range[0]) / 100]
@@ -183,19 +185,23 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
 
     # Initialize time in bin
     time_in_bin = np.zeros((num_SObins, 1))
-    prop_in_bin = np.zeros((num_SObins, 1))
+    # prop_in_bin = np.zeros((num_SObins, 1)) #  Implement for stage_props
 
-    inds = ~np.isnan(SO_power_norm)
     # Compute peak phase
     pow_interp = interpolate.interp1d(SOpow_times[inds], SO_power_norm[inds], fill_value="extrapolate")
     peak_SOpow = pow_interp(peak_times)
+
+    # SO-power time step size
+    d_stimes = SOpow_times[1] - SOpow_times[0]
 
     for s_bin in range(num_SObins):
         TIB_inds = np.logical_and(SO_power_norm >= SO_bin_edges[0, s_bin], SO_power_norm < SO_bin_edges[1, s_bin])
         SO_inds = np.logical_and(peak_SOpow >= SO_bin_edges[0, s_bin], peak_SOpow < SO_bin_edges[1, s_bin])
 
-        time_in_bin[s_bin] = (np.sum(TIB_inds) * (SOpow_times[1] - SOpow_times[0])) / 60
+        # Time in bin in minutes
+        time_in_bin[s_bin] = (np.sum(TIB_inds) * d_stimes / 60)
 
+        # Check for min time in bin
         if time_in_bin[s_bin] < min_time_in_bin:
             continue
 
@@ -205,10 +211,10 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
                 freq_inds = np.logical_and(peak_freqs >= freq_bin_edges[0, f_bin],
                                            peak_freqs < freq_bin_edges[1, f_bin])
 
-                # Fill histogram with count of peaks in this freq / SOpow bin
+                # Fill histogram with peak rate in this freq / SOpow bin
                 SOpow_hist[f_bin, s_bin] = np.sum(SO_inds & freq_inds) / time_in_bin[s_bin]
         else:
-            SOpow_hist[:, s_bin] = 0
+            SOpow_hist[:, s_bin] = np.nan
 
     return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SOpow_times
 
@@ -305,9 +311,9 @@ def plot_figure():
     # Load in data
     print('Loading in raw data...', end=" ")
     # EEG data
-    csv_data = pd.read_csv('data_night.csv', header=None)
+    csv_data = pd.read_csv('data/night_data.csv', header=None)
     data = np.array(csv_data[0]).astype(np.float32)
-    stages = pd.read_csv('example_stages.csv')
+    stages = pd.read_csv('data/night_stages.csv')
     stages.Time -= 3180
 
     # Sampling Frequency
@@ -316,8 +322,17 @@ def plot_figure():
 
     # Load in stats table of peak data
     print('Loading in TF-peaks stats data...', end=" ")
-    stats_table = pd.read_csv('example_night.csv')
+    stats_table = pd.read_csv('data/night_peaks.csv')
     print('Done')
+
+    # Compute peak phase
+    t = np.arange(len(data)) / fs
+    phase = get_SO_phase(data, fs)
+
+    # Compute peak phase
+    peak_interp = scipy.interpolate.interp1d(t, phase)
+    peak_phase = wrap_phase(peak_interp(stats_table['peak_time'].values))
+    stats_table['phase'] = peak_phase
 
     artifacts = detect_artifacts(data, fs)
 
@@ -356,16 +371,11 @@ def plot_figure():
                                                    weighting, plot_on, clim_scale, verbose, xyflip)
     print('Done')
 
-    # Plot the scatter plot
-    peak_size = stats_table['volume'] / 100
-    pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
-    peak_size[peak_size > pmax] = 0
-
     print('Computing SO-Power Histogram...', end=" ")
     SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times = \
         SO_power_histogram(stats_table['peak_time'].values, stats_table['peak_frequency'].values,
                            data, fs, artifacts, freq_range=[4, 25], freq_window=[1, 0.2],
-                           SO_range=[0, 100], SO_window=[20, 1], norm_method='percent', verbose=False)
+                           norm_method='shift', verbose=False)
     print('Done')
 
     print('Computing SO-Phase Histogram...', end=" ")
@@ -429,7 +439,12 @@ def plot_figure():
     ax2.set_xlim([SO_power_times[0] / 3500, SO_power_times[-1] / 3600])
     ax2.set_xlabel('Time (hrs)')
 
-    # Plot scatter plot
+    # Plot the scatter plot
+    peak_size = stats_table['volume'] / 300
+    pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
+    peak_size[peak_size > pmax] = 0
+    peak_size = np.square(peak_size)
+
     x = np.divide(stats_table.peak_time, 3600)
     y = [stats_table.peak_frequency]
     c = [stats_table.phase]
@@ -458,7 +473,7 @@ def plot_figure():
     plt.axes(ax4)
     im = ax4.imshow(SOpow_hist, extent=extent, aspect='auto')
     clims = np.percentile(SOpow_hist, [5, 98])
-    im.set_clim(clims[0], clims[1])
+    im.set_clim(0, 8.5)  #clims[0], clims[1])
     ax4.set_ylabel('Frequency (Hz)')
     ax4.invert_yaxis()
     im.set_cmap(plt.cm.get_cmap('cet_gouldian'))
@@ -473,7 +488,7 @@ def plot_figure():
     plt.axes(ax5)
     im = ax5.imshow(SOphase_hist, extent=extent, aspect='auto')
     clims = np.percentile(SOphase_hist, [5, 98])
-    im.set_clim(clims[0], clims[1])
+    im.set_clim(0.0085, 0.0118)  # ]clims[0], clims[1])
     ax5.set_ylabel('Frequency (Hz)')
     ax5.invert_yaxis()
     im.set_cmap(plt.cm.get_cmap('magma'))

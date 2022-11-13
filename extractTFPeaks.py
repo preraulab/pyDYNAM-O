@@ -4,12 +4,14 @@ import numpy as np
 import pandas as pd
 import scipy.signal
 import skimage.future.graph
+from skimage.transform import resize
 from joblib import Parallel, delayed, cpu_count
 from matplotlib import colors
 from scipy.stats.distributions import chi2
 from skimage import measure, segmentation, future, color, morphology
 from tqdm import tqdm
 from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
+from pyTODhelper import *
 
 
 def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: np.ndarray) -> float:
@@ -158,34 +160,30 @@ def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged: np.ndarray, 
     """
 
     # Get the region pixel values
-    reg_idx = list(zip(*graph_rag.nodes[region_num]["region"]))
-    reg_vals = np.sort(graph_data[reg_idx[0], reg_idx[1]])
+    reg_idx = np.where(labels_merged == region_num)  # list(zip(*graph_rag.nodes[region_num]["region"]))
+    reg_vals = np.sort(graph_data[reg_idx])  # graph_data[reg_idx[0], reg_idx[1]])
 
     # Find the cutoff for the volume
     percent_vol = np.cumsum(reg_vals) / np.sum(reg_vals)
     trim_idx = next(x for x, val in enumerate(percent_vol)
                     if val > 1 - trim_volume)
     trim_level = reg_vals[trim_idx]
-    rplot = labels_merged == region_num
+    rplot = np.zeros(graph_data.shape)
+    rplot[reg_idx] = 1
 
     # Slice at the trim level
     img = np.logical_and(rplot, graph_data > trim_level)
 
     # Fill all holes
-    img = morphology.remove_small_holes(img)
-
-    # Turn into a label image
-    label_img = measure.label(img)
+    label_img = measure.label(morphology.remove_small_holes(img), connectivity=2)
 
     # Select the largest region if there are subregions after trim
     if np.max(label_img) > 1:
         rp = measure.regionprops(label_img)
         max_area_label = rp[np.argmax([prop.area for prop in rp])].label
-        label_img = label_img == max_area_label
-    else:
-        label_img = label_img > 0
+        label_img = (label_img == max_area_label)
 
-    return label_img
+    return label_img * region_num
 
 
 def plot_node(graph_rag, node_num):
@@ -201,25 +199,6 @@ def plot_node(graph_rag, node_num):
         plt.plot(i[1], i[0], 'kx')
     for i in graph_rag.nodes[node_num]["region"]:
         plt.plot(i[1], i[0], 'b.')
-
-
-def nn_resample(data: np.ndarray, shape: tuple) -> np.ndarray:
-    """
-    Nearest neighbors resampling of the matrix
-
-    :param data: data matrix to upsample
-    :type data: np.ndarray
-    :param shape: new shape
-    :type shape: tuple
-    :return: new matrix
-    """
-
-    def per_axis(in_sz, out_sz):
-        ratio = 0.5 * in_sz / out_sz
-        return np.round(np.linspace(ratio - 0.5, in_sz - ratio - 0.5, num=out_sz)).astype(int)
-
-    return data[per_axis(data.shape[0], shape[0])[:, None],
-                per_axis(data.shape[1], shape[1])]
 
 
 def process_segments_params(segment_dur: float, stimes: np.ndarray):
@@ -265,6 +244,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     :param bw_max: max bandwidth
     :param prom_min: min prominence
     :param plot_on: Flag for plotting
+    :param verbose: Verbose setting
     """
 
     if verbose:
@@ -281,8 +261,8 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     # Run watershed segmentation with empty border regions
     labels = segmentation.watershed(-segment_data_LR, connectivity=2, watershed_line=True)
 
-    # Expand labels by 1 to join them. This will be used to compute the RAG
-    join_labels = segmentation.expand_labels(labels, distance=10)
+    # Expand labels by 5 (to be safe) to join them. This will be used to compute the RAG
+    join_labels = segmentation.expand_labels(labels, distance=5)
 
     # Create a region adjacency graph (RAG))
     RAG = future.graph.RAG(join_labels, connectivity=2)
@@ -382,11 +362,15 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     for n in RAG:
         for p in RAG.nodes[n]["region"]:
             labels_merged[p] = n
+    for n in RAG:
         for b in RAG.nodes[n]["border"]:
             labels_merged[b] = 0
 
+    join_labels_merged = segmentation.expand_labels(labels_merged, distance=5)
+
     if downsample:
-        labels_merged = nn_resample(labels_merged, segment_data.shape)
+        labels_merged = resize(join_labels_merged, segment_data.shape,
+                               0)  # nn_resample(labels_merged, segment_data.shape)
 
     if verbose:
         print('Trimming...')
@@ -394,26 +378,23 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     # Set up the trim images
     trim_labels = np.zeros(segment_data.shape)
 
-    # Trim only regions that are bigger than the min bw/dur
-    for r in RAG.nodes:
-        # Get the values of the merged nodes
-        r_border = list(zip(*RAG.nodes[r]["border"]))
-        r_region = list(zip(*RAG.nodes[r]["region"]))
-
-        # Compute bandwidth and duration
-        bw = (np.max(r_border[0]) - np.min(r_border[0])) * d_freq
-        dur = (np.max(r_border[1]) - np.min(r_border[1])) * d_time
-
-        data_vals = segment_data[r_region[0], r_region[1]]
+    c = 1
+    for n in np.unique(labels_merged):
+        curr_region = (labels_merged == n)
+        rx, ry = np.where(curr_region)
+        bw = (np.max(rx) - np.min(rx)) * d_freq
+        dur = (np.max(ry) - np.min(ry)) * d_time
+        data_vals = segment_data[curr_region]
         height = pow2db(max(data_vals) - min(data_vals))
 
         # Only trim if within parameters
         if (bw >= bw_min) & (dur >= dur_min) & (height >= prom_min):
             # Add to new labels image
-            trim_labels += trim_region(RAG, labels_merged, segment_data, r, trim_volume)
+            trim_labels += (trim_region(RAG, labels_merged, segment_data, n, trim_volume) > 0) * c
+            c = c + 1
 
-    # Get the label image of the trimmed regions
-    trim_labels = measure.label(trim_labels)
+    # Convert to int to work as a labeled image
+    trim_labels = trim_labels.astype(int)
 
     if verbose:
         toc_trim = timeit.default_timer()
@@ -448,7 +429,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 
     # Compute volume from label data and spectrogram
     stats_table['volume'] = [np.sum(segment_data[np.where(trim_labels == i)]) * d_time * d_freq for i in
-                             stats_table['label']]
+                             stats_table.label.values]
 
     # Drop unneeded columns
     del stats_table['centroid_weighted-0']
@@ -462,26 +443,17 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 
     # Query stats table for final results
     stats_table = stats_table.query(
-        'duration>@dur_min & duration<@dur_max & bandwidth>@bw_min & bandwidth<@bw_max & '
-        'prominence>@prom_min')
+        'duration>@dur_min & duration<@dur_max & bandwidth>@bw_min & bandwidth<@bw_max & prominence>@prom_min')
 
     if verbose:
         toc_stats = timeit.default_timer()
         print(f'      Stats table took {toc_stats - tic_stats:.3f}s')
 
-        # # Display region properties
-        # print('Stats table:')
-        # print(stats_table.to_string())
-        # print(' ')
-
     if plot_on:
         # Make labels post filtering for display
         filtered_labels = np.zeros(segment_data.shape)
         for n in stats_table['label']:
-            filtered_labels += (trim_labels == n)
-
-        # Get updated label array
-        filtered_labels = measure.label(filtered_labels)
+            filtered_labels += (trim_labels == n) * n
 
         # Plot post-merged network
         img_extent = 0, list(segment_data.shape)[1] * d_time, list(segment_data.shape)[0] * d_freq, 0
@@ -527,14 +499,14 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     return stats_table
 
 
-def run_TFpeak_extraction(data, fs, quality='fast'):
-    if data is None:
-        # Load in data
-        csv_data = pd.read_csv('python_tests/data_night.csv', header=None)
-        data = np.array(csv_data[0]).astype(np.float32)
+def run_TFpeak_extraction(quality='fast'):
+    # if not data:
+    # Load in data
+    csv_data = pd.read_csv('data/night_data.csv', header=None)
+    data = np.array(csv_data[0]).astype(np.float32)
 
-        # Sampling Frequency
-        fs = 100
+    # Sampling Frequency
+    fs = 100
 
     # %% COMPUTE MULTITAPER SPECTROGRAM
     # Number of jobs to use
@@ -584,7 +556,7 @@ def run_TFpeak_extraction(data, fs, quality='fast'):
     d_freq = sfreqs[1] - sfreqs[0]
 
     # Remove baseline
-    baseline = np.percentile(spect, 3, axis=1, keepdims=True)
+    baseline = np.percentile(spect, 2, axis=1, keepdims=True)
     spect_baseline = np.divide(spect, baseline)
 
     # %% DETECT TF-PEAKS
@@ -637,14 +609,14 @@ def run_TFpeak_extraction(data, fs, quality='fast'):
     toc_outer = timeit.default_timer()
     print('Peak detection took ' + convertHMS(toc_outer - tic_outer))
 
-    # Compute peak phase
-    t = np.arange(len(data)) / fs
-    phase = get_SO_phase(data, fs)
-
-    # Compute peak phase
-    peak_interp = scipy.interpolate.interp1d(t, phase)
-    peak_phase = wrap_phase(peak_interp(stats_table['peak_time'].values))
-    stats_table['phase'] = peak_phase
+    # # Compute peak phase
+    # t = np.arange(len(data)) / fs
+    # phase = get_SO_phase(data, fs)
+    #
+    # # Compute peak phase
+    # peak_interp = scipy.interpolate.interp1d(t, phase)
+    # peak_phase = wrap_phase(peak_interp(stats_table['peak_time'].values))
+    # stats_table['phase'] = peak_phase
 
     # Fix the stats_table to sort by time and reset labels
     del stats_table['label']
@@ -652,21 +624,22 @@ def run_TFpeak_extraction(data, fs, quality='fast'):
     stats_table.reset_index()
 
     print('Writing stats_table to file...')
-    stats_table.to_csv('example_night.csv')
+    stats_table.to_csv('data_night_peaks.csv')
     print('Done')
 
     # Plot the scatter plot
     peak_size = stats_table['volume'] / 15
     pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
     peak_size[peak_size > pmax] = 0
+    peak_size = np.square(peak_size)
 
     fig1 = plt.figure()
 
     x = [stats_table.peak_time]
     y = [stats_table.peak_frequency]
-    c = [stats_table.phase]
+    # c = [stats_table.phase]
 
-    plt.scatter(x, y, peak_size, c)
+    plt.scatter(x, y, peak_size)
     plt.xlabel('Time (s)')
     plt.ylabel('Frequency (Hz)')
     plt.colorbar()
@@ -682,4 +655,7 @@ def run_TFpeak_extraction(data, fs, quality='fast'):
 
 if __name__ == '__main__':
     # Extract TF-peaks from scratch
+
+    print('here')
     run_TFpeak_extraction()
+    print('done')
