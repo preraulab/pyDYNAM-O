@@ -500,7 +500,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 def run_TFpeak_extraction(quality='fast'):
     # if not data:
     # Load in data
-    csv_data = pd.read_csv('data/chunk_data.csv', header=None)
+    csv_data = pd.read_csv('data/night_data.csv', header=None)
     data = np.array(csv_data[0]).astype(np.float32)
 
     # Sampling Frequency
@@ -613,7 +613,7 @@ def run_TFpeak_extraction(quality='fast'):
     stats_table.reset_index()
 
     print('Writing stats_table to file...')
-    stats_table.to_csv('data_night_peaks.csv')
+    stats_table.to_csv('data/data_night_peaks.csv')
     print('Done')
 
 
