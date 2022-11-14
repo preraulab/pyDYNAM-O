@@ -2,13 +2,11 @@ import timeit
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import scipy.signal
 import skimage.future.graph
-from skimage.transform import resize
 from joblib import Parallel, delayed, cpu_count
-from matplotlib import colors
 from scipy.stats.distributions import chi2
 from skimage import measure, segmentation, future, color, morphology
+from skimage.transform import resize
 from tqdm import tqdm
 from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
 from pyTODhelper import *
@@ -452,7 +450,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     if plot_on:
         # Make labels post filtering for display
         filtered_labels = np.zeros(segment_data.shape)
-        for n in stats_table['label']:
+        for n in stats_table.label:
             filtered_labels += (trim_labels == n) * n
 
         # Plot post-merged network
@@ -502,7 +500,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 def run_TFpeak_extraction(quality='fast'):
     # if not data:
     # Load in data
-    csv_data = pd.read_csv('data/night_data.csv', header=None)
+    csv_data = pd.read_csv('data/chunk_data.csv', header=None)
     data = np.array(csv_data[0]).astype(np.float32)
 
     # Sampling Frequency
@@ -609,15 +607,6 @@ def run_TFpeak_extraction(quality='fast'):
     toc_outer = timeit.default_timer()
     print('Peak detection took ' + convertHMS(toc_outer - tic_outer))
 
-    # # Compute peak phase
-    # t = np.arange(len(data)) / fs
-    # phase = get_SO_phase(data, fs)
-    #
-    # # Compute peak phase
-    # peak_interp = scipy.interpolate.interp1d(t, phase)
-    # peak_phase = wrap_phase(peak_interp(stats_table['peak_time'].values))
-    # stats_table['phase'] = peak_phase
-
     # Fix the stats_table to sort by time and reset labels
     del stats_table['label']
     stats_table.sort_values('peak_time')
@@ -626,31 +615,6 @@ def run_TFpeak_extraction(quality='fast'):
     print('Writing stats_table to file...')
     stats_table.to_csv('data_night_peaks.csv')
     print('Done')
-
-    # Plot the scatter plot
-    peak_size = stats_table['volume'] / 15
-    pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
-    peak_size[peak_size > pmax] = 0
-    peak_size = np.square(peak_size)
-
-    fig1 = plt.figure()
-
-    x = [stats_table.peak_time]
-    y = [stats_table.peak_frequency]
-    # c = [stats_table.phase]
-
-    plt.scatter(x, y, peak_size)
-    plt.xlabel('Time (s)')
-    plt.ylabel('Frequency (Hz)')
-    plt.colorbar()
-
-    # Shift the HSV colormap
-    hsv = plt.colormaps['hsv'].resampled(2 ** 12)
-    cm = colors.ListedColormap(hsv(np.roll(np.linspace(0, 1, 2 ** 12), -650)))
-    plt.set_cmap(cm)
-
-    # Show Figures
-    plt.show()
 
 
 if __name__ == '__main__':

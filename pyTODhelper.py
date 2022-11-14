@@ -1,13 +1,17 @@
-import numpy as np
 from itertools import groupby
+import numpy as np
 from matplotlib.patches import Rectangle
-from scipy import signal
 
 
 def nan_zscore(data):
+    """Computes zscore ignoring nan values
+
+    :param data: Input data
+    :return: zscored data
+    """
     # Compute modified z-score
-    mid = np.mean(data)
-    std = np.std(data)
+    mid = np.nanmean(data)
+    std = np.nanstd(data)
 
     return (data - mid) / std
 
@@ -32,36 +36,6 @@ def pow2db(y):
         ydB = (10 * np.log10(y) + 300) - 300
 
     return ydB
-
-
-def zscore_remove(data, crit, filt_obj, bad_inds, smooth_dur=2):
-    signal_envelope = np.abs(signal.hilbert(data))
-    envelope_smooth = np.log(np.convolve(signal_envelope, np.ones(smooth_dur), 'same') / smooth_dur)
-    # envelope = signal.sosfiltfilt(filt_obj, envelope_smooth)
-    envelope = nan_zscore(envelope_smooth)
-
-    if bad_inds is None:
-        detected_artifacts = np.full(len(envelope), False)
-    else:
-        detected_artifacts = bad_inds
-
-    over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
-
-    c = 1
-    while np.any(over_crit):
-        detected_artifacts[over_crit] = True
-        # Remove artifacts from the signal
-        ysig = envelope[~detected_artifacts]
-        ymid = np.nanmean(ysig)
-        ystd = np.nanstd(ysig)
-        envelope = (envelope - ymid) / ystd
-
-        # Find new criterion
-        over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
-
-        c += 1
-
-    return detected_artifacts
 
 
 def convertHMS(seconds: float) -> str:

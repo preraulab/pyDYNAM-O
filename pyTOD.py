@@ -1,16 +1,10 @@
 import copy
-
 import matplotlib.gridspec as gridspec
-import matplotlib.pyplot as plt
-from matplotlib import colors
-import numpy as np
-import pandas as pd
-from joblib import cpu_count
-from scipy import signal, interpolate
-import colorcet  # It looks like this is not used, but it puts the colorcet cmaps in matplotlib
-from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
-from pyTODhelper import *
+from scipy.interpolate import interp1d
+from scipy.signal import convolve, butter, hilbert, sosfiltfilt
 from extractTFPeaks import *
+from matplotlib.colors import ListedColormap
+import colorcet  # It looks like this is not used, but it puts the colorcet cmaps in matplotlib
 
 
 def butter_bandpass(lowcut, highcut, fs, order=50):
@@ -25,7 +19,7 @@ def butter_bandpass(lowcut, highcut, fs, order=50):
     nyq = 0.5 * fs
     low = lowcut / nyq
     high = highcut / nyq
-    sos = signal.butter(order, [low, high], btype='band', output='sos')
+    sos = butter(order, [low, high], btype='band', output='sos')
     return sos
 
 
@@ -39,23 +33,75 @@ def butter_highpass(lowcut, fs, order=50):
     """
     nyq = 0.5 * fs
     low = lowcut / nyq
-    sos = signal.butter(order, low, btype='hp', output='sos')
+    sos = butter(order, low, btype='hp', output='sos')
     return sos
 
 
-def detect_artifacts(data, fs, hf_cut=25, bb_cut=0.1, detrend_cut=0.001, crit_high=5.5, crit_broad=5.5,
-                     smooth_duration=2):
+def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dir):
+    """Find artifacts by removing data until none left outside of criterion
+
+    :param data: Data sequence
+    :param crit: Critical value in terms of std from mean
+    :param bad_inds: Data to remove prior to procedure
+    :param smooth_dur: Duration (in samples) of smoothing window for mean filter
+    :param detrend_dir: Duration (in samples) of detrending window for mean filter
+    :return: Detected arifacts
+    """
+    # Get signal envelope
+    signal_envelope = np.abs(hilbert(data))
+    # Smooth envelope and take the log
+    envelope_smooth = np.log(convolve(signal_envelope, np.ones(smooth_dur), 'same') / smooth_dur)
+    # Detrend envelope using mean filter
+    envelope_detrend = envelope_smooth - convolve(envelope_smooth, np.ones(detrend_dir), 'same') / detrend_dir
+
+    envelope = nan_zscore(envelope_detrend)
+
+    if bad_inds is None:
+        detected_artifacts = np.full(len(envelope), False)
+    else:
+        detected_artifacts = bad_inds
+
+    over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
+
+    # Keep removing data until there is nothing left outside the criterion
+    while np.any(over_crit):
+        detected_artifacts[over_crit] = True
+        # Remove artifacts from the signal
+        ysig = envelope[~detected_artifacts]
+        ymid = np.nanmean(ysig)
+        ystd = np.nanstd(ysig)
+        envelope = (envelope - ymid) / ystd
+
+        # Find new criterion
+        over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
+
+    return detected_artifacts
+
+
+def detect_artifacts(data, fs, hf_cut=25, bb_cut=0.1, crit_high=4.5, crit_broad=4.5,
+                     smooth_duration=2, detrend_duration=5*60):
+    """An iterative method to detect artifacts based on data distribution spread
+
+    :param data: Signal data
+    :param fs: Sampling frequency
+    :param hf_cut: High-frequency filter cut (in Hz)
+    :param bb_cut: Broadband filter cut (in Hz)
+    :param crit_high: Criterion value for high-frequency data
+    :param crit_broad: Criterion value for broadband data
+    :param smooth_duration: Duration of smoothing window (in seconds)
+    :param detrend_duration: Duration of detrending window (in seconds)_
+    :return:
+    """
     highfilt = butter_highpass(hf_cut, fs, order=50)
     broadfilt = butter_highpass(bb_cut, fs, order=50)
-    detrendfilt = butter_highpass(detrend_cut, fs, order=50)
 
-    data_high = signal.sosfiltfilt(highfilt, data)
-    data_broad = signal.sosfiltfilt(broadfilt, data)
+    data_high = sosfiltfilt(highfilt, data)
+    data_broad = sosfiltfilt(broadfilt, data)
 
     bad_inds = np.abs(nan_zscore(data)) > 10 | np.isnan(data) | np.isinf(data) | find_flat(data)
 
-    hf_artifacts = zscore_remove(data_high, crit_high, detrendfilt, bad_inds, smooth_dur=smooth_duration * fs)
-    bb_artifacts = zscore_remove(data_broad, crit_broad, detrendfilt, bad_inds, smooth_dur=smooth_duration * fs)
+    hf_artifacts = zscore_remove(data_high, crit_high, bad_inds, smooth_dur=smooth_duration * fs, detrend_dir=detrend_duration * fs)
+    bb_artifacts = zscore_remove(data_broad, crit_broad, bad_inds, smooth_dur=smooth_duration * fs, detrend_dir=detrend_duration * fs)
 
     return np.logical_or(hf_artifacts, bb_artifacts)
 
@@ -81,9 +127,9 @@ def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=50):
     :return: Unwrapped phase
     """
     sos = butter_bandpass(lowcut, highcut, fs, 10)
-    data_filt = signal.sosfiltfilt(sos, data)
+    data_filt = sosfiltfilt(sos, data)
 
-    analytic_signal = signal.hilbert(data_filt)
+    analytic_signal = hilbert(data_filt)
     phase = np.unwrap(np.angle(analytic_signal))
     return phase
 
@@ -126,7 +172,22 @@ def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
 
 def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=None, freq_window=None,
                        SO_range=None, SO_window=None, norm_method='percent', min_time_in_bin=1, verbose=True):
+    """Compute a slow oscillation power histogram
 
+    :param peak_times: Peak times
+    :param peak_freqs: Peak frequencies
+    :param data: Time series data
+    :param fs: Sampling frequency
+    :param artifacts: Artifacts list
+    :param freq_range: Frequency range
+    :param freq_window: Frequency window width and step size
+    :param SO_range: SO-power range
+    :param SO_window: SO-power window width and step size
+    :param norm_method: Normalization method ('shift', 'percent', or 'none')
+    :param min_time_in_bin: Minimum time in bin to count towards histogram
+    :param verbose: Verbose flag
+    :return: SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SOpow_times
+    """
     good_data = copy.deepcopy(data)
     good_data[artifacts] = np.nan
     SO_power, SOpow_times = get_SO_power(good_data, fs, lowcut=0.3, highcut=1.5)
@@ -185,10 +246,9 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
 
     # Initialize time in bin
     time_in_bin = np.zeros((num_SObins, 1))
-    # prop_in_bin = np.zeros((num_SObins, 1)) #  Implement for stage_props
 
     # Compute peak phase
-    pow_interp = interpolate.interp1d(SOpow_times[inds], SO_power_norm[inds], fill_value="extrapolate")
+    pow_interp = interp1d(SOpow_times[inds], SO_power_norm[inds], fill_value="extrapolate")
     peak_SOpow = pow_interp(peak_times)
 
     # SO-power time step size
@@ -221,6 +281,20 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
 
 def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_window=None,
                        phase_range=None, phase_window=None, min_time_in_bin=1, verbose=True):
+    """Compute a slow oscillation phase histogram
+
+    :param peak_times: Peak times
+    :param peak_freqs: Peak frequencies
+    :param data: Time series data
+    :param fs: Sampling frequency
+    :param freq_range: Frequency range
+    :param freq_window: Frequency window width and step size
+    :param phase_range: SO-power range
+    :param phase_window: SO-power window width and step size
+    :param min_time_in_bin: Minimum time in bin to count towards histogram
+    :param verbose: Verbose flag
+    :return: SOphase_hist, freq_cbins, phase_cbins
+    """
     SO_phase = wrap_phase(get_SO_phase(data, fs, lowcut=0.3, highcut=1.5))
 
     # Set defaults
@@ -259,11 +333,10 @@ def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
 
     # Initialize time in bin
     time_in_bin = np.zeros((num_phasebins, 1))
-    prop_in_bin = np.zeros((num_phasebins, 1))
 
     # Compute peak phase
     inds = ~np.isnan(SO_phase)
-    pow_interp = interpolate.interp1d(np.arange(len(data[inds])) / fs, SO_phase[inds], fill_value="extrapolate")
+    pow_interp = interp1d(np.arange(len(data[inds])) / fs, SO_phase[inds], fill_value="extrapolate")
     peak_SOphase = pow_interp(peak_times)
 
     for p_bin in range(num_phasebins):
@@ -330,17 +403,19 @@ def plot_figure():
     phase = get_SO_phase(data, fs)
 
     # Compute peak phase
-    peak_interp = scipy.interpolate.interp1d(t, phase)
+    peak_interp = interp1d(t, phase)
     peak_phase = wrap_phase(peak_interp(stats_table['peak_time'].values))
     stats_table['phase'] = peak_phase
 
+    print('Detecting artifacts...', end=" ")
     artifacts = detect_artifacts(data, fs)
+    print('Done')
 
     # Compute peak phase
-    stage_interp = interpolate.interp1d(stages.Time.values, stages.Stage.values, kind='previous',
+    stage_interp = interp1d(stages.Time.values, stages.Stage.values, kind='previous',
                                         fill_value="extrapolate")
     # Compute peak stage
-    peak_stages = stage_interp(stats_table['peak_time'])
+    peak_stages = stage_interp(stats_table.peak_time)
     stats_table['stage'] = peak_stages
 
     # Number of jobs to use
@@ -373,14 +448,14 @@ def plot_figure():
 
     print('Computing SO-Power Histogram...', end=" ")
     SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times = \
-        SO_power_histogram(stats_table['peak_time'].values, stats_table['peak_frequency'].values,
+        SO_power_histogram(stats_table.peak_time, stats_table.peak_frequency,
                            data, fs, artifacts, freq_range=[4, 25], freq_window=[1, 0.2],
                            norm_method='shift', verbose=False)
     print('Done')
 
     print('Computing SO-Phase Histogram...', end=" ")
     SOphase_hist, freq_cbins, phase_cbins = \
-        SO_phase_histogram(stats_table['peak_time'].values, stats_table['peak_frequency'].values,
+        SO_phase_histogram(stats_table.peak_time, stats_table.peak_frequency,
                            data, fs, freq_range=[4, 25], freq_window=[1, 0.2], verbose=False)
     print('Done')
 
@@ -455,7 +530,7 @@ def plot_figure():
 
     # Shift the HSV colormap
     hsv = plt.colormaps['hsv'].resampled(2 ** 12)
-    hsv_rot = colors.ListedColormap(hsv(np.roll(np.linspace(0, 1, 2 ** 12), -650)))
+    hsv_rot = ListedColormap(hsv(np.roll(np.linspace(0, 1, 2 ** 12), -650)))
     sp.set_cmap(hsv_rot)
     cbar = outside_colorbar(fig, ax3, sp, gap=0.01, shrink=0.8)
     cbar.set_ticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
