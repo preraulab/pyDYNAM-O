@@ -10,6 +10,7 @@ from skimage.transform import resize
 from tqdm import tqdm
 from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
 from pyTODhelper import *
+import heapq
 
 
 def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: np.ndarray) -> float:
@@ -25,35 +26,28 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
     i_border, i_region = list(graph_rag.nodes[graph_edge[0]].values())[1:]
     j_border, j_region = list(graph_rag.nodes[graph_edge[1]].values())[1:]
 
-    A_ij = i_border.intersection(j_border)
+    A_ij = np.intersect1d(i_border, j_border)
 
     # Diagonal neighbor is not really connected
     if not len(A_ij):
         return np.nan  # Set to nan to not be a neighbor
 
-        # #Computationally costly procedure to join to other region
-        # img = np.zeros(graph_data.shape)
-        # for i in i_region:
-        #     img[i[0], i[1]] = 1
-        # bx, by = np.where(morphology.dilation(img, np.ones([3, 3])))
-        # joint_pxls = set(zip(bx, by)).intersection(j_border)
-        # i_region.update(joint_pxls)
-        # i_border.update(joint_pxls)
-        # A_ij = i_border.intersection(j_border)
-
-    A_ij_max = np.max([graph_data[i] for i in A_ij])
+    A_ij_max = np.max(graph_data[np.unravel_index(A_ij, graph_data.shape)])
 
     # Store for reuse efficiency
-    i_border_vals = [graph_data[i] for i in i_border]
-    j_border_vals = [graph_data[i] for i in j_border]
+    i_border_vals = graph_data[np.unravel_index(i_border, graph_data.shape)]
+    j_border_vals = graph_data[np.unravel_index(i_border, graph_data.shape)]
 
     # Minimum border values
     B_i_min = np.min(i_border_vals)
     B_j_min = np.min(j_border_vals)
 
+    i_region_vals = graph_data[np.unravel_index(i_region, graph_data.shape)]
+    j_region_vals = graph_data[np.unravel_index(j_region, graph_data.shape)]
+
     # Max region values
-    i_max = np.max([graph_data[i] for i in i_region] + i_border_vals)
-    j_max = np.max([graph_data[i] for i in j_region] + j_border_vals)
+    i_max = np.max(np.concatenate([i_border_vals, i_region_vals]))
+    j_max = np.max(np.concatenate([j_border_vals, j_region_vals]))
 
     # Compute weight for i into j
     # C_ij = A_ij_max - B_i_min
@@ -84,29 +78,33 @@ def merge_weight(graph_rag: skimage.future.graph.RAG, src: int, dst: int, neighb
     :param dst: destination node (merged already)
     :param graph_data: spectrogram data
     """
+
     # Get border and region tuples
     i_border, i_region = list(graph_rag.nodes[dst].values())[1:]
     j_border, j_region = list(graph_rag.nodes[neighbor].values())[1:]
 
-    A_ij = i_border.intersection(j_border)
+    A_ij = np.intersect1d(i_border, j_border)
 
     # Diagonal neighbor is not really connected
     if not len(A_ij):
         return np.nan  # Set to nan to not be a neighbor
 
-    A_ij_max = np.max([graph_data[i] for i in A_ij])
+    A_ij_max = np.max(graph_data[np.unravel_index(A_ij, graph_data.shape)])
 
     # Store for reuse efficiency
-    i_border_vals = [graph_data[i] for i in i_border]
-    j_border_vals = [graph_data[i] for i in j_border]
+    i_border_vals = graph_data[np.unravel_index(i_border, graph_data.shape)]
+    j_border_vals = graph_data[np.unravel_index(i_border, graph_data.shape)]
 
     # Minimum border values
     B_i_min = np.min(i_border_vals)
     B_j_min = np.min(j_border_vals)
 
+    i_region_vals = graph_data[np.unravel_index(i_region, graph_data.shape)]
+    j_region_vals = graph_data[np.unravel_index(j_region, graph_data.shape)]
+
     # Max region values
-    i_max = np.max([graph_data[i] for i in i_region] + i_border_vals)
-    j_max = np.max([graph_data[i] for i in j_region] + j_border_vals)
+    i_max = np.max(np.concatenate([i_border_vals, i_region_vals]))
+    j_max = np.max(np.concatenate([j_border_vals, j_region_vals]))
 
     # Compute weight for i into j
     # C_ij = A_ij_max - B_i_min
@@ -134,10 +132,9 @@ def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     :param dst: Destination node
     """
     # Region is union of regions
-    graph_rag[dst]["region"] = graph_rag[dst]["region"].union(graph_rag[src]["region"])
+    graph_rag.nodes[dst]["region"] = np.union1d(graph_rag.nodes[dst]["region"], graph_rag.nodes[src]["region"])
     # Border is symmetric difference of borders
-    graph_rag[dst]["border"] = graph_rag[dst]["border"].symmetric_difference(graph_rag[src]["border"])
-    # print(str(src) + ' > ' + str(dst) + ' weight: ' + str(graph_rag.edges[src, dst]['weight']))
+    graph_rag.nodes[dst]["border"] = np.setxor1d(graph_rag.nodes[dst]["border"], graph_rag.nodes[src]["border"])
 
 
 def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged: np.ndarray, graph_data: np.ndarray, region_num: int,
@@ -221,6 +218,144 @@ def process_segments_params(segment_dur: float, stimes: np.ndarray):
     return window_idx, start_times
 
 
+def _revalidate_node_edges(rag, node, heap_list):
+    """Handles validation and invalidation of edges incident to a node.
+    This function invalidates all existing edges incident on `node` and inserts
+    new items in `heap_list` updated with the valid weights.
+    rag : RAG
+        The Region Adjacency Graph.
+    node : int
+        The id of the node whose incident edges are to be validated/invalidated
+        .
+    heap_list : list
+        The list containing the existing heap of edges.
+    """
+    # networkx updates data dictionary if edge exists
+    # this would mean we have to reposition these edges in
+    # heap if their weight is updated.
+    # instead we invalidate them
+
+    for nbr in rag.neighbors(node):
+        data = rag[node][nbr]
+        try:
+            # invalidate edges incident on `dst`, they have new weights
+            data['heap item'][3] = False
+            _invalidate_edge(rag, node, nbr)
+        except KeyError:
+            # will handle the case where the edge did not exist in the existing
+            # graph
+            pass
+
+        wt = data['weight']
+        heap_item = [wt, node, nbr, True]
+        data['heap item'] = heap_item
+        heapq.heappush(heap_list, heap_item)
+
+
+def _rename_node(graph, node_id, copy_id):
+    """ Rename `node_id` in `graph` to `copy_id`. """
+
+    graph._add_node_silent(copy_id)
+    graph.nodes[copy_id].update(graph.nodes[node_id])
+
+    for nbr in graph.neighbors(node_id):
+        wt = graph[node_id][nbr]['weight']
+        graph.add_edge(nbr, copy_id, {'weight': wt})
+
+    graph.remove_node(node_id)
+
+
+def _invalidate_edge(graph, n1, n2):
+    """ Invalidates the edge (n1, n2) in the heap. """
+    graph[n1][n2]['heap item'][3] = False
+
+
+def merge_hierarchical(labels, rag, thresh, rag_copy, in_place_merge,
+                       merge_func, weight_func, segment_data_LR):
+    """Perform hierarchical merging of a RAG.
+    Greedily merges the most similar pair of nodes until no edges lower than
+    `thresh` remain.
+    Parameters
+    ----------
+    labels : ndarray
+        The array of labels.
+    rag : RAG
+        The Region Adjacency Graph.
+    thresh : float
+        Regions connected by an edge with weight smaller than `thresh` are
+        merged.
+    rag_copy : bool
+        If set, the RAG copied before modifying.
+    in_place_merge : bool
+        If set, the nodes are merged in place. Otherwise, a new node is
+        created for each merge..
+    merge_func : callable
+        This function is called before merging two nodes. For the RAG `graph`
+        while merging `src` and `dst`, it is called as follows
+        ``merge_func(graph, src, dst)``.
+    weight_func : callable
+        The function to compute the new weights of the nodes adjacent to the
+        merged node. This is directly supplied as the argument `weight_func`
+        to `merge_nodes`.
+    Returns
+    -------
+    out : ndarray
+        The new labeled array.
+    """
+    # if rag_copy:
+    #     rag = rag.copy()
+
+    edge_heap = []
+    for n1, n2, data in rag.edges(data=True):
+        # Push a valid edge in the heap
+        wt = data['weight']
+        heap_item = [wt, n1, n2, True]
+        heapq.heappush(edge_heap, heap_item)
+
+        # Reference to the heap item in the graph
+        data['heap item'] = heap_item
+
+    heapq._heapify_max(edge_heap)
+
+    while len(edge_heap) > 0 and edge_heap[0][0] > thresh:
+        _, n1, n2, valid = heapq._heappop_max(edge_heap)
+
+        # Ensure popped edge is valid, if not, the edge is discarded
+        if valid:
+            # Invalidate all neigbors of `src` before its deleted
+
+            for nbr in rag.neighbors(n1):
+                _invalidate_edge(rag, n1, nbr)
+
+            for nbr in rag.neighbors(n2):
+                _invalidate_edge(rag, n2, nbr)
+
+            if not in_place_merge:
+                next_id = rag.next_id()
+                _rename_node(rag, n2, next_id)
+                src, dst = n1, next_id
+            else:
+                src, dst = n1, n2
+
+            # # Region is union of regions
+            # rag.nodes[dst]["region"] = np.union1d(rag.nodes[dst]["region"], RAG.nodes[src]["region"])
+            # #     # Border is symmetric difference of borders
+            # rag.nodes[dst]["border"] = np.setxor1d(rag.nodes[dst]["border"], RAG.nodes[src]["border"])
+
+        merge_regions(rag, src, dst)
+
+        # merge_func(rag, src, dst)
+        new_id = rag.merge_nodes(src, dst, merge_weight, extra_arguments=[segment_data_LR])
+        _revalidate_node_edges(rag, new_id, edge_heap)
+
+    label_map = np.arange(labels.max() + 1)
+    for ix, (n, d) in enumerate(rag.nodes(data=True)):
+        for label in d['labels']:
+            label_map[label] = ix
+
+    return label_map[labels]
+
+
 def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_threshold=8, max_merges=np.inf,
                    trim_volume=0.8,
                    downsample=None, dur_min=-np.inf, dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf, prom_min=-np.inf,
@@ -273,13 +408,10 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
         # Compute the borders by intersecting 1 pixel dilation with zero-valued watershed border regions
         bx, by = np.where(morphology.dilation(curr_region, np.ones([3, 3])) & (labels == 0))
         border = np.array([np.ravel_multi_index((a, b), labels.shape) for a, b in zip(bx, by)])
+
         # Get regions by bing full region
         rx, ry = np.where(curr_region)
-        region = np.array([np.ravel_multi_index((a, b), labels.shape) for a, b in zip(bx, by)])
-
-        # Zip into sets of tuples for easy set operations (e.g. intersection)
-        border = set(zip(bx, by))
-        region = set(zip(rx, ry)).union(border)  # Add border to region
+        region = np.array([np.ravel_multi_index((a, b), labels.shape) for a, b in zip(rx, ry)])
 
         # Set node properties
         RAG.nodes[n]["border"] = border
@@ -322,9 +454,8 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
         if verbose:
             tic_max = timeit.default_timer()
 
-        edge, mv = max(dict(RAG.edges).items(), key=lambda x: x[1]['weight'])
-        src, dst = edge
-        max_val = mv['weight']
+        # Get max val and edge
+        (max_val, src, dst) = max([(d['weight'], u, v) for (u, v, d) in RAG.edges(data=True)])
 
         if verbose:
             toc_max = timeit.default_timer()
@@ -333,10 +464,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
         if verbose:
             tic_borders = timeit.default_timer()
 
-        # Region is union of regions
-        RAG.nodes[dst]["region"] = RAG.nodes[dst]["region"].union(RAG.nodes[src]["region"])
-        # Border is symmetric difference of borders
-        RAG.nodes[dst]["border"] = RAG.nodes[dst]["border"].symmetric_difference(RAG.nodes[src]["border"])
+        merge_regions(RAG, src, dst)
 
         if verbose:
             toc_borders = timeit.default_timer()
@@ -361,20 +489,20 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     labels_merged = np.zeros(labels.shape, dtype=int)
     for n in RAG:
         for p in RAG.nodes[n]["region"]:
-            labels_merged[p] = n
+            labels_merged[np.unravel_index(p, labels_merged.shape)] = n
     for n in RAG:
         for b in RAG.nodes[n]["border"]:
-            labels_merged[b] = 0
+            labels_merged[np.unravel_index(b, labels_merged.shape)] = 0
 
     join_labels_merged = segmentation.expand_labels(labels_merged, distance=5)
 
     if downsample:
-        labels_merged = resize(join_labels_merged, segment_data.shape,
-                               0)  # nn_resample(labels_merged, segment_data.shape)
+        labels_merged = resize(join_labels_merged, segment_data.shape, 0)
 
     if verbose:
         print('Trimming...')
         tic_trim = timeit.default_timer()
+
     # Set up the trim images
     trim_labels = np.zeros(segment_data.shape)
 
@@ -502,7 +630,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 def run_TFpeak_extraction(quality='fast'):
     # if not data:
     # Load in data
-    csv_data = pd.read_csv('data/chunk_data.csv', header=None)
+    csv_data = pd.read_csv('data/night_data.csv', header=None)
     data = np.array(csv_data[0]).astype(np.float32)
 
     # Sampling Frequency
@@ -582,8 +710,8 @@ def run_TFpeak_extraction(quality='fast'):
     # Set TF-peak detection settings
     trim_vol = 0.8
     max_merges = 500
-    plot_on = True
-    verbose = True
+    plot_on = False
+    verbose = False
 
     # Set the size of the spectrogram samples
     window_idxs, start_times = process_segments_params(segment_dur, stimes)
@@ -600,12 +728,11 @@ def run_TFpeak_extraction(quality='fast'):
     # Single chunk test
     stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
 
-    #
-    # stats_tables = Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
-    #     spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
-    #                                        for num_window in tqdm(range(num_windows)))
-    #
-    # stats_table = pd.concat(stats_tables, ignore_index=True)
+    stats_tables = Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
+        spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
+                                           for num_window in tqdm(range(num_windows)))
+
+    stats_table = pd.concat(stats_tables, ignore_index=True)
 
     toc_outer = timeit.default_timer()
     print('Peak detection took ' + convertHMS(toc_outer - tic_outer))
@@ -615,9 +742,9 @@ def run_TFpeak_extraction(quality='fast'):
     stats_table.sort_values('peak_time')
     stats_table.reset_index()
 
-    # print('Writing stats_table to file...')
-    # stats_table.to_csv('data/data_night_peaks.csv')
-    # print('Done')
+    print('Writing stats_table to file...')
+    stats_table.to_csv('data/data_night_peaks.csv')
+    print('Done')
 
 
 if __name__ == '__main__':
