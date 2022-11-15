@@ -272,8 +272,10 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
         curr_region = (labels == n)
         # Compute the borders by intersecting 1 pixel dilation with zero-valued watershed border regions
         bx, by = np.where(morphology.dilation(curr_region, np.ones([3, 3])) & (labels == 0))
+        border = np.array([np.ravel_multi_index((a, b), labels.shape) for a, b in zip(bx, by)])
         # Get regions by bing full region
         rx, ry = np.where(curr_region)
+        region = np.array([np.ravel_multi_index((a, b), labels.shape) for a, b in zip(bx, by)])
 
         # Zip into sets of tuples for easy set operations (e.g. intersection)
         border = set(zip(bx, by))
@@ -500,7 +502,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 def run_TFpeak_extraction(quality='fast'):
     # if not data:
     # Load in data
-    csv_data = pd.read_csv('data/night_data.csv', header=None)
+    csv_data = pd.read_csv('data/chunk_data.csv', header=None)
     data = np.array(csv_data[0]).astype(np.float32)
 
     # Sampling Frequency
@@ -580,8 +582,8 @@ def run_TFpeak_extraction(quality='fast'):
     # Set TF-peak detection settings
     trim_vol = 0.8
     max_merges = 500
-    plot_on = False
-    verbose = False
+    plot_on = True
+    verbose = True
 
     # Set the size of the spectrogram samples
     window_idxs, start_times = process_segments_params(segment_dur, stimes)
@@ -595,14 +597,15 @@ def run_TFpeak_extraction(quality='fast'):
     print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
     tic_outer = timeit.default_timer()
 
-    # # Single chunk test
-    # stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
+    # Single chunk test
+    stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
 
-    stats_tables = Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
-        spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
-                                           for num_window in tqdm(range(num_windows)))
-
-    stats_table = pd.concat(stats_tables, ignore_index=True)
+    #
+    # stats_tables = Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
+    #     spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
+    #                                        for num_window in tqdm(range(num_windows)))
+    #
+    # stats_table = pd.concat(stats_tables, ignore_index=True)
 
     toc_outer = timeit.default_timer()
     print('Peak detection took ' + convertHMS(toc_outer - tic_outer))
@@ -612,9 +615,9 @@ def run_TFpeak_extraction(quality='fast'):
     stats_table.sort_values('peak_time')
     stats_table.reset_index()
 
-    print('Writing stats_table to file...')
-    stats_table.to_csv('data/data_night_peaks.csv')
-    print('Done')
+    # print('Writing stats_table to file...')
+    # stats_table.to_csv('data/data_night_peaks.csv')
+    # print('Done')
 
 
 if __name__ == '__main__':
