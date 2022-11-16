@@ -1,6 +1,7 @@
 from itertools import groupby
 import numpy as np
 from matplotlib.patches import Rectangle
+from scipy.signal import convolve, butter, hilbert, sosfiltfilt
 
 
 def nan_zscore(data):
@@ -178,3 +179,104 @@ def hypnoplot(time, stage, ax=None, plot_buffer=0.8):
             color = (.6, .6, .6)
 
         ax.add_patch(Rectangle((ptime[c[1]], ylim[0]), ptime[c[2]] - ptime[c[1]], ylim[1] - ylim[0], facecolor=color))
+
+
+
+def butter_bandpass(lowcut, highcut, fs, order=50):
+    """Performs a zero-phase butterworth bandpass filter on SOS
+
+    :param lowcut: Low-end frequency cutoff
+    :param highcut: High-end frequency cutoff
+    :param fs: Sampling Frequency
+    :param order: Filter order
+    :return: Filtered data
+    """
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    high = highcut / nyq
+    sos = butter(order, [low, high], btype='band', output='sos')
+    return sos
+
+
+def butter_highpass(lowcut, fs, order=50):
+    """Performs a zero-phase butterworth bandpass filter on SOS
+
+    :param lowcut: Low-end frequency cutoff
+    :param fs: Sampling Frequency
+    :param order: Filter order
+    :return: Filtered data
+    """
+    nyq = 0.5 * fs
+    low = lowcut / nyq
+    sos = butter(order, low, btype='hp', output='sos')
+    return sos
+
+
+def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dir):
+    """Find artifacts by removing data until none left outside of criterion
+
+    :param data: Data sequence
+    :param crit: Critical value in terms of std from mean
+    :param bad_inds: Data to remove prior to procedure
+    :param smooth_dur: Duration (in samples) of smoothing window for mean filter
+    :param detrend_dir: Duration (in samples) of detrending window for mean filter
+    :return: Detected arifacts
+    """
+    # Get signal envelope
+    signal_envelope = np.abs(hilbert(data))
+    # Smooth envelope and take the log
+    envelope_smooth = np.log(convolve(signal_envelope, np.ones(smooth_dur), 'same') / smooth_dur)
+    # Detrend envelope using mean filter
+    envelope_detrend = envelope_smooth - convolve(envelope_smooth, np.ones(detrend_dir), 'same') / detrend_dir
+
+    envelope = nan_zscore(envelope_detrend)
+
+    if bad_inds is None:
+        detected_artifacts = np.full(len(envelope), False)
+    else:
+        detected_artifacts = bad_inds
+
+    over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
+
+    # Keep removing data until there is nothing left outside the criterion
+    while np.any(over_crit):
+        detected_artifacts[over_crit] = True
+        # Remove artifacts from the signal
+        ysig = envelope[~detected_artifacts]
+        ymid = np.nanmean(ysig)
+        ystd = np.nanstd(ysig)
+        envelope = (envelope - ymid) / ystd
+
+        # Find new criterion
+        over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
+
+    return detected_artifacts
+
+
+def detect_artifacts(data, fs, hf_cut=25, bb_cut=0.1, crit_high=4.5, crit_broad=4.5,
+                     smooth_duration=2, detrend_duration=5*60):
+    """An iterative method to detect artifacts based on data distribution spread
+
+    :param data: Signal data
+    :param fs: Sampling frequency
+    :param hf_cut: High-frequency filter cut (in Hz)
+    :param bb_cut: Broadband filter cut (in Hz)
+    :param crit_high: Criterion value for high-frequency data
+    :param crit_broad: Criterion value for broadband data
+    :param smooth_duration: Duration of smoothing window (in seconds)
+    :param detrend_duration: Duration of detrending window (in seconds)_
+    :return:
+    """
+    highfilt = butter_highpass(hf_cut, fs, order=50)
+    broadfilt = butter_highpass(bb_cut, fs, order=50)
+
+    data_high = sosfiltfilt(highfilt, data)
+    data_broad = sosfiltfilt(broadfilt, data)
+
+    bad_inds = np.abs(nan_zscore(data)) > 10 | np.isnan(data) | np.isinf(data) | find_flat(data)
+
+    hf_artifacts = zscore_remove(data_high, crit_high, bad_inds, smooth_dur=smooth_duration * fs, detrend_dir=detrend_duration * fs)
+    bb_artifacts = zscore_remove(data_broad, crit_broad, bad_inds, smooth_dur=smooth_duration * fs, detrend_dir=detrend_duration * fs)
+
+    return np.logical_or(hf_artifacts, bb_artifacts)
+

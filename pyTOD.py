@@ -1,401 +1,165 @@
-import copy
 import matplotlib.gridspec as gridspec
-from scipy.interpolate import interp1d
-from scipy.signal import convolve, butter, hilbert, sosfiltfilt
-from extractTFPeaks import *
 from matplotlib.colors import ListedColormap
 import colorcet  # It looks like this is not used, but it puts the colorcet cmaps in matplotlib
+from extractTFPeaks import *
+from SOhistograms import *
 
 
-def butter_bandpass(lowcut, highcut, fs, order=50):
-    """Performs a zero-phase butterworth bandpass filter on SOS
+def run_example_data(data_range='segment', quality='fast', save_peaks=False, load_peaks=True):
+    # Load in data
+    print('Loading in raw data...', end=" ")
+    # EEG data and stages
+    csv_data = pd.read_csv('data/' + data_range + '_data.csv', header=None)
+    data = np.array(csv_data[0]).astype(np.float32)
+    stages = pd.read_csv('data/' + data_range + '_stages.csv')
 
-    :param lowcut: Low-end frequency cutoff
-    :param highcut: High-end frequency cutoff
-    :param fs: Sampling Frequency
-    :param order: Filter order
-    :return: Filtered data
-    """
-    nyq = 0.5 * fs
-    low = lowcut / nyq
-    high = highcut / nyq
-    sos = butter(order, [low, high], btype='band', output='sos')
-    return sos
+    # Sampling Frequency
+    fs = 100
+    print('Done')
 
+    # Sampling Frequency
+    fs = 100
 
-def butter_highpass(lowcut, fs, order=50):
-    """Performs a zero-phase butterworth bandpass filter on SOS
+    if not load_peaks:
+        # %% DETECT TF-PEAKS
+        if quality == 'paper':
+            downsample = []
+            segment_dur = 60
+            merge_thresh = 8
+        elif quality == 'precision':
+            downsample = []
+            segment_dur = 30
+            merge_thresh = 8
+        elif quality == 'fast':
+            downsample = [2, 2]
+            segment_dur = 30
+            merge_thresh = 11
+        elif quality == 'draft':
+            downsample = [5, 1]
+            segment_dur = 30
+            merge_thresh = 13
+        else:
+            raise ValueError("Specify settings 'precision', 'fast', or 'draft'")
 
-    :param lowcut: Low-end frequency cutoff
-    :param fs: Sampling Frequency
-    :param order: Filter order
-    :return: Filtered data
-    """
-    nyq = 0.5 * fs
-    low = lowcut / nyq
-    sos = butter(order, low, btype='hp', output='sos')
-    return sos
+        trim_volume = 0.8  # Trim TF-peaks to retain 80 of original volume
+        max_merges = np.inf  # Set limit on number merges if needs be
 
+        stats_table = run_TFpeak_detection(data, fs, downsample, segment_dur, merge_thresh, max_merges, trim_volume)
 
-def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dir):
-    """Find artifacts by removing data until none left outside of criterion
-
-    :param data: Data sequence
-    :param crit: Critical value in terms of std from mean
-    :param bad_inds: Data to remove prior to procedure
-    :param smooth_dur: Duration (in samples) of smoothing window for mean filter
-    :param detrend_dir: Duration (in samples) of detrending window for mean filter
-    :return: Detected arifacts
-    """
-    # Get signal envelope
-    signal_envelope = np.abs(hilbert(data))
-    # Smooth envelope and take the log
-    envelope_smooth = np.log(convolve(signal_envelope, np.ones(smooth_dur), 'same') / smooth_dur)
-    # Detrend envelope using mean filter
-    envelope_detrend = envelope_smooth - convolve(envelope_smooth, np.ones(detrend_dir), 'same') / detrend_dir
-
-    envelope = nan_zscore(envelope_detrend)
-
-    if bad_inds is None:
-        detected_artifacts = np.full(len(envelope), False)
+        if save_peaks:
+            print('Writing stats_table to file...')
+            stats_table.to_csv('data/' + data_range + '_peaks.csv')
+            print('Done')
     else:
-        detected_artifacts = bad_inds
+        stats_table = pd.read_csv('data/' + data_range + '_peaks.csv')
 
-    over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
+    SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, \
+    SOphase_hist, freq_cbins, phase_cbins = compute_SOPHs(data, fs, stages, stats_table)
 
-    # Keep removing data until there is nothing left outside the criterion
-    while np.any(over_crit):
-        detected_artifacts[over_crit] = True
-        # Remove artifacts from the signal
-        ysig = envelope[~detected_artifacts]
-        ymid = np.nanmean(ysig)
-        ystd = np.nanstd(ysig)
-        envelope = (envelope - ymid) / ystd
-
-        # Find new criterion
-        over_crit = np.logical_and(np.abs(envelope) > crit, ~detected_artifacts)
-
-    return detected_artifacts
+    plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist,
+                freq_cbins)
 
 
-def detect_artifacts(data, fs, hf_cut=25, bb_cut=0.1, crit_high=4.5, crit_broad=4.5,
-                     smooth_duration=2, detrend_duration=5*60):
-    """An iterative method to detect artifacts based on data distribution spread
+def run_TFpeak_detection(data=None, fs=None, downsample=None, segment_dur=60, merge_thresh=8,
+                         max_merges=np.inf, trim_volume=0.8):
+    # Handle no downsampling
+    if downsample is None:
+        downsample = []
 
-    :param data: Signal data
-    :param fs: Sampling frequency
-    :param hf_cut: High-frequency filter cut (in Hz)
-    :param bb_cut: Broadband filter cut (in Hz)
-    :param crit_high: Criterion value for high-frequency data
-    :param crit_broad: Criterion value for broadband data
-    :param smooth_duration: Duration of smoothing window (in seconds)
-    :param detrend_duration: Duration of detrending window (in seconds)_
-    :return:
-    """
-    highfilt = butter_highpass(hf_cut, fs, order=50)
-    broadfilt = butter_highpass(bb_cut, fs, order=50)
+    # %% COMPUTE MULTITAPER SPECTROGRAM
+    # Number of jobs to use
+    n_jobs = max(cpu_count() - 1, 1)
 
-    data_high = sosfiltfilt(highfilt, data)
-    data_broad = sosfiltfilt(broadfilt, data)
+    # Limit frequencies from 0 to 25 Hz
+    frequency_range = [0, 30]
 
-    bad_inds = np.abs(nan_zscore(data)) > 10 | np.isnan(data) | np.isinf(data) | find_flat(data)
-
-    hf_artifacts = zscore_remove(data_high, crit_high, bad_inds, smooth_dur=smooth_duration * fs, detrend_dir=detrend_duration * fs)
-    bb_artifacts = zscore_remove(data_broad, crit_broad, bad_inds, smooth_dur=smooth_duration * fs, detrend_dir=detrend_duration * fs)
-
-    return np.logical_or(hf_artifacts, bb_artifacts)
-
-
-def wrap_phase(phase: np.ndarray) -> np.ndarray:
-    """Wrap phase from -pi to pi
-
-    :param phase: Unwrapped phase
-    :return: Wrapped phase
-    """
-    return np.angle(np.exp(1j * phase))
-
-
-def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=50):
-    """Computes unwrapped slow oscillation phase
-    Note: Phase is unwrapped because wrapping does not return to original angle given the unwrapping algorithm
-
-    :param data: EEG time series data
-    :param fs: Sampling frequency
-    :param lowcut: Bandpass low-end cutoff
-    :param highcut: Bandpass high-end cutoff
-    :param order: Filter order
-    :return: Unwrapped phase
-    """
-    sos = butter_bandpass(lowcut, highcut, fs, 10)
-    data_filt = sosfiltfilt(sos, data)
-
-    analytic_signal = hilbert(data_filt)
-    phase = np.unwrap(np.angle(analytic_signal))
-    return phase
-
-
-def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
-    """Computes slow oscillation power
-
-    :param data: EEG time series data
-    :param fs: Sampling frequency
-    :param lowcut: Bandpass low-end cutoff
-    :param highcut: Bandpass high-end cutoff
-    :return: SO_power, SOpow_times
-    """
-    frequency_range = [lowcut, highcut]
-
-    taper_params = [15, 29]  # Set taper params
+    taper_params = [2, 3]  # Set taper params
     time_bandwidth = taper_params[0]  # Set time-half bandwidth
     num_tapers = taper_params[1]  # Set number of tapers (optimal is time_bandwidth*2 - 1)
-    window_params = [30, 10]  # Window size is 4s with step size of 1s
-    min_nfft = 0  # NFFT
-    detrend_opt = 'linear'  # constant detrend
+    window_params = [1, .05]  # Window size is 4s with step size of 1s
+    min_nfft = 2 ** 10  # NFFT
+    detrend_opt = 'constant'  # constant detrend
     multiprocess = True  # use multiprocessing
-    cpus = max(cpu_count() - 1, 1)  # use max cores in multiprocessing
+    cpus = n_jobs  # use max cores in multiprocessing
     weighting = 'unity'  # weight each taper at 1
     plot_on = False  # plot spectrogram
     clim_scale = False  # do not auto-scale colormap
     verbose = False  # print extra info
     xyflip = False  # do not transpose spect output matrix
 
+    # MTS frequency resolution
+    df = taper_params[0] / window_params[0] * 2
+
+    # Set min duration and bandwidth based on spectral parameters
+    dur_min = window_params[0] / 2
+    bw_min = df / 2
+
+    # Max duration and bandwidth are set to be large values
+    dur_max = 5
+    bw_max = 15
+
+    # Set minimal peak height based on confidence interval lower bound of MTS
+    chi2_df = 2 * taper_params[1]
+    alpha = 0.95
+    prom_min = -pow2db(chi2_df / chi2.ppf(alpha / 2 + 0.5, chi2_df)) * 2
+
     # Compute the multitaper spectrogram
-    spect, SOpow_times, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
-                                                        window_params,
-                                                        min_nfft, detrend_opt, multiprocess, cpus,
-                                                        weighting, plot_on, clim_scale, verbose, xyflip)
+    spect, stimes, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
+                                                   window_params,
+                                                   min_nfft, detrend_opt, multiprocess, cpus,
+                                                   weighting, plot_on, clim_scale, verbose, xyflip)
 
-    df = sfreqs[1] - sfreqs[0]
-    SO_power = pow2db(np.sum(spect, axis=0) * df)
-    return SO_power, SOpow_times
+    # Define spectral coords dx dy
+    d_time = stimes[1] - stimes[0]
+    d_freq = sfreqs[1] - sfreqs[0]
+
+    # Remove baseline
+    baseline = np.percentile(spect, 2, axis=1, keepdims=True)
+    spect_baseline = np.divide(spect, baseline)
+
+    # Set the size of the spectrogram samples
+    window_idxs, start_times = process_segments_params(segment_dur, stimes)
+    num_windows = len(start_times)
+
+    # Set up the parameters to pass to each window
+    dp_params = (d_time, d_freq, merge_thresh, max_merges, trim_volume, downsample, dur_min, dur_max,
+                 bw_min, bw_max, prom_min, plot_on, verbose)
+
+    #  Run jobs in parallel
+    print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
+    tic_outer = timeit.default_timer()
+
+    # # First segment test
+    # stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
+
+    stats_tables = Parallel(n_jobs=4)(delayed(detect_tfpeaks)(
+        spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
+                                           for num_window in tqdm(range(num_windows)))
+
+    stats_table = pd.concat(stats_tables, ignore_index=True)
+
+    toc_outer = timeit.default_timer()
+    print('Peak detection took ' + convertHMS(toc_outer - tic_outer))
+
+    # Fix the stats_table to sort by time and reset labels
+    del stats_table['label']
+    stats_table.sort_values('peak_time')
+    stats_table.reset_index()
+
+    return stats_table
 
 
-def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=None, freq_window=None,
-                       SO_range=None, SO_window=None, norm_method='percent', min_time_in_bin=1, verbose=True):
-    """Compute a slow oscillation power histogram
+def compute_SOPHs(data, fs, stages, stats_table):
+    """Compute SO-power and SO-phase histograms for detected peaks
 
-    :param peak_times: Peak times
-    :param peak_freqs: Peak frequencies
     :param data: Time series data
     :param fs: Sampling frequency
-    :param artifacts: Artifacts list
-    :param freq_range: Frequency range
-    :param freq_window: Frequency window width and step size
-    :param SO_range: SO-power range
-    :param SO_window: SO-power window width and step size
-    :param norm_method: Normalization method ('shift', 'percent', or 'none')
-    :param min_time_in_bin: Minimum time in bin to count towards histogram
-    :param verbose: Verbose flag
-    :return: SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SOpow_times
+    :param stages: Time/Stage dataframe
+    :param stats_table: Peak statistics table
+    :return: SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins, phase_cbins
     """
-    good_data = copy.deepcopy(data)
-    good_data[artifacts] = np.nan
-    SO_power, SOpow_times = get_SO_power(good_data, fs, lowcut=0.3, highcut=1.5)
-    inds = ~np.isnan(SO_power)
-
-    # Normalize  power
-    if type(norm_method) == float:
-        shift_ptile = norm_method
-        norm_method = 'shift'
-    else:
-        shift_ptile = 5
-
-    if norm_method == 'percentile' or norm_method == 'percent':
-        low_val = 1
-        high_val = 99
-        ptile = np.percentile(SO_power[inds], [low_val, high_val])
-        SO_power_norm = SO_power - ptile[0]
-        SO_power_norm = np.divide(SO_power_norm, (ptile[1] - ptile[0])) * 100
-    elif norm_method == 'shift' or norm_method == 'p5shift':
-        ptile = np.percentile(SO_power[inds], [shift_ptile])
-        SO_power_norm = np.subtract(SO_power, ptile)
-    elif norm_method == 'absolute' or norm_method == 'none':
-        SO_power_norm = SO_power
-    else:
-        raise ValueError("Not a valid normalization option, choose 'p5shift', 'percent', or 'none'")
-
-    if freq_range is None:
-        freq_range = [np.min(peak_freqs), np.max(peak_freqs)]
-
-    if freq_window is None:
-        freq_window = [(freq_range[1] - freq_range[0]) / 5, (freq_range[1] - freq_range[0]) / 100]
-
-    freq_bin_edges, freq_cbins = create_bins(freq_range[0], freq_range[1], freq_window[0], freq_window[1], 'partial')
-    num_freqbins = len(freq_cbins)
-
-    if SO_range is None:
-        SO_range = [np.min(SO_power_norm[inds]), np.max(SO_power_norm[inds])]
-
-    if SO_window is None:
-        SO_window = [(SO_range[1] - SO_range[0]) / 5, (SO_range[1] - SO_range[0]) / 100]
-
-    SO_bin_edges, SO_cbins = create_bins(SO_range[0], SO_range[1], SO_window[0], SO_window[1], 'partial')
-    num_SObins = len(SO_cbins)
-
-    if verbose:
-        print('  SO-Power Histogram Settings:')
-        print('    Normalization Method: ' + str(norm_method))
-        print('    Frequency Window Size: ' + str(freq_window[0]) + ' Hz, Window Step: ' + str(freq_window[1]) + ' Hz')
-        print('    Frequency Range: ', str(freq_range[0]) + '-' + str(freq_range[1]) + ' Hz')
-        print('    SO-Power Window Size: ' + str(SO_window[0]) + ', Window Step: ' + str(SO_window[1]))
-        print('    SO-Power Range: ' + str(SO_range[0]) + '-', str(SO_range[1]))
-        print('    Minimum time required in each SO-Power bin: ' + str(min_time_in_bin) + ' min')
-
-    # Initialize SO_pow x freq matrix
-    SOpow_hist = np.empty(shape=(num_freqbins, num_SObins)) * np.nan
-
-    # Initialize time in bin
-    time_in_bin = np.zeros((num_SObins, 1))
-
-    # Compute peak phase
-    pow_interp = interp1d(SOpow_times[inds], SO_power_norm[inds], fill_value="extrapolate")
-    peak_SOpow = pow_interp(peak_times)
-
-    # SO-power time step size
-    d_stimes = SOpow_times[1] - SOpow_times[0]
-
-    for s_bin in range(num_SObins):
-        TIB_inds = np.logical_and(SO_power_norm >= SO_bin_edges[0, s_bin], SO_power_norm < SO_bin_edges[1, s_bin])
-        SO_inds = np.logical_and(peak_SOpow >= SO_bin_edges[0, s_bin], peak_SOpow < SO_bin_edges[1, s_bin])
-
-        # Time in bin in minutes
-        time_in_bin[s_bin] = (np.sum(TIB_inds) * d_stimes / 60)
-
-        # Check for min time in bin
-        if time_in_bin[s_bin] < min_time_in_bin:
-            continue
-
-        if np.sum(SO_inds):
-            for f_bin in range(num_freqbins):
-                # Get indices in freq bin
-                freq_inds = np.logical_and(peak_freqs >= freq_bin_edges[0, f_bin],
-                                           peak_freqs < freq_bin_edges[1, f_bin])
-
-                # Fill histogram with peak rate in this freq / SOpow bin
-                SOpow_hist[f_bin, s_bin] = np.sum(SO_inds & freq_inds) / time_in_bin[s_bin]
-        else:
-            SOpow_hist[:, s_bin] = np.nan
-
-    return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SOpow_times
-
-
-def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_window=None,
-                       phase_range=None, phase_window=None, min_time_in_bin=1, verbose=True):
-    """Compute a slow oscillation phase histogram
-
-    :param peak_times: Peak times
-    :param peak_freqs: Peak frequencies
-    :param data: Time series data
-    :param fs: Sampling frequency
-    :param freq_range: Frequency range
-    :param freq_window: Frequency window width and step size
-    :param phase_range: SO-power range
-    :param phase_window: SO-power window width and step size
-    :param min_time_in_bin: Minimum time in bin to count towards histogram
-    :param verbose: Verbose flag
-    :return: SOphase_hist, freq_cbins, phase_cbins
-    """
-    SO_phase = wrap_phase(get_SO_phase(data, fs, lowcut=0.3, highcut=1.5))
-
-    # Set defaults
-    if freq_range is None:
-        freq_range = [np.min(peak_freqs), np.max(peak_freqs)]
-
-    if not freq_window:
-        freq_window = [(freq_range[1] - freq_range[0]) / 5, (freq_range[1] - freq_range[0]) / 100]
-
-    freq_bin_edges, freq_cbins = create_bins(freq_range[0], freq_range[1],
-                                             freq_window[0], freq_window[1], 'partial')
-    num_freqbins = len(freq_cbins)
-
-    if phase_range is None:
-        phase_range = [-np.pi, np.pi]
-
-    if phase_window is None:
-        phase_window = [(2 * np.pi) / 5, (2 * np.pi) / 100]
-
-    # Extend bins to wrap around
-    phase_bin_edges, phase_cbins = create_bins(phase_range[0], phase_range[1],
-                                               phase_window[0], phase_window[1], 'extend')
-    num_phasebins = len(phase_cbins)
-
-    if verbose:
-        print('  SO-Power Histogram Settings:')
-        print('    Frequency Window Size: ' + str(freq_window[0]) + ' Hz, Window Step: ' + str(freq_window[1]) + ' Hz')
-        print('    Frequency Range: ', str(freq_range[0]) + '-' + str(freq_range[1]) + ' Hz')
-        print('    SO-Phase Window Size: ' + str(phase_window[0] / np.pi) + 'π, Window Step: ' +
-              str(phase_window[1] / np.pi) + 'π')
-        print('    SO-Phase Range: ' + str(phase_range[0] / np.pi) + 'π - ', str(phase_range[1] / np.pi) + 'π')
-        print('    Minimum time required in each phase bin: ' + str(min_time_in_bin) + ' min')
-
-    # Initialize SO_pow x freq matrix
-    SOphase_hist = np.empty(shape=(num_freqbins, num_phasebins)) * np.nan
-
-    # Initialize time in bin
-    time_in_bin = np.zeros((num_phasebins, 1))
-
-    # Compute peak phase
-    inds = ~np.isnan(SO_phase)
-    pow_interp = interp1d(np.arange(len(data[inds])) / fs, SO_phase[inds], fill_value="extrapolate")
-    peak_SOphase = pow_interp(peak_times)
-
-    for p_bin in range(num_phasebins):
-        if phase_bin_edges[0, p_bin] <= -np.pi:
-            wrapped_edge_lowlim = phase_bin_edges[0, p_bin] + (2 * np.pi)
-            TIB_inds = np.logical_or(SO_phase >= wrapped_edge_lowlim,
-                                     SO_phase < phase_bin_edges[1, p_bin])
-            phase_inds = np.logical_or(peak_SOphase >= wrapped_edge_lowlim,
-                                       peak_SOphase < phase_bin_edges[1, p_bin])
-        elif phase_bin_edges[1, p_bin] >= np.pi:
-            wrapped_edge_highlim = phase_bin_edges[1, p_bin] - (2 * np.pi)
-            TIB_inds = np.logical_or(SO_phase < wrapped_edge_highlim,
-                                     SO_phase >= phase_bin_edges[0, p_bin])
-            phase_inds = np.logical_or(peak_SOphase < wrapped_edge_highlim,
-                                       peak_SOphase >= phase_bin_edges[0, p_bin])
-        else:
-            TIB_inds = np.logical_and(SO_phase >= phase_bin_edges[0, p_bin],
-                                      SO_phase < phase_bin_edges[1, p_bin])
-            phase_inds = np.logical_and(peak_SOphase >= phase_bin_edges[0, p_bin],
-                                        peak_SOphase < phase_bin_edges[1, p_bin])
-
-        time_in_bin[p_bin] = (np.sum(TIB_inds) * (1 / fs) / 60)
-
-        if time_in_bin[p_bin] < min_time_in_bin:
-            continue
-
-        if np.sum(phase_inds):
-            for f_bin in range(num_freqbins):
-                # Get indices in freq bin
-                freq_inds = np.logical_and(peak_freqs >= freq_bin_edges[0, f_bin],
-                                           peak_freqs < freq_bin_edges[1, f_bin])
-
-                # Fill histogram with count of peaks in this freq / SOpow bin
-                SOphase_hist[f_bin, p_bin] = np.sum(phase_inds & freq_inds) / time_in_bin[p_bin]
-        else:
-            SOphase_hist[:, p_bin] = 0
-
-    # Normalize
-    SOphase_hist = SOphase_hist / np.nansum(SOphase_hist, axis=1)[:, np.newaxis]
-
-    return SOphase_hist, freq_cbins, phase_cbins
-
-
-def plot_figure():
-    # Load in data
-    print('Loading in raw data...', end=" ")
-    # EEG data
-    csv_data = pd.read_csv('data/night_data.csv', header=None)
-    data = np.array(csv_data[0]).astype(np.float32)
-    stages = pd.read_csv('data/night_stages.csv')
-    stages.Time -= 3180
-
-    # Sampling Frequency
-    fs = 100
-    print('Done')
-
-    # Load in stats table of peak data
-    print('Loading in TF-peaks stats data...', end=" ")
-    stats_table = pd.read_csv('data/night_peaks.csv')
+    print('Detecting artifacts...', end=" ")
+    artifacts = detect_artifacts(data, fs)
     print('Done')
 
     # Compute peak phase
@@ -407,17 +171,39 @@ def plot_figure():
     peak_phase = wrap_phase(peak_interp(stats_table['peak_time'].values))
     stats_table['phase'] = peak_phase
 
-    print('Detecting artifacts...', end=" ")
-    artifacts = detect_artifacts(data, fs)
-    print('Done')
-
-    # Compute peak phase
-    stage_interp = interp1d(stages.Time.values, stages.Stage.values, kind='previous',
-                                        fill_value="extrapolate")
     # Compute peak stage
+    stage_interp = interp1d(stages.Time.values, stages.Stage.values, kind='previous',
+                            fill_value="extrapolate")
+
     peak_stages = stage_interp(stats_table.peak_time)
     stats_table['stage'] = peak_stages
 
+    # Compute artifact peaks
+    art_interp = interp1d(t, artifacts, kind='nearest',
+                          fill_value="extrapolate")
+    artifact_time = art_interp(stats_table.peak_time)
+    stats_table['artifact_time'] = artifact_time.astype(bool)
+
+    # Only consider sleep peaks at non-artifact times
+    stats_table = stats_table.query('stage<5 and not artifact_time')
+
+    print('Computing SO-Power Histogram...', end=" ")
+    SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times = \
+        SO_power_histogram(stats_table.peak_time, stats_table.peak_frequency,
+                           data, fs, artifacts, freq_range=[4, 25], freq_window=[1, 0.2],
+                           norm_method='shift', verbose=False)
+    print('Done')
+
+    print('Computing SO-Phase Histogram...', end=" ")
+    SOphase_hist, freq_cbins, phase_cbins = \
+        SO_phase_histogram(stats_table.peak_time, stats_table.peak_frequency,
+                           data, fs, freq_range=[4, 25], freq_window=[1, 0.2], verbose=False)
+    print('Done')
+
+    return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins, phase_cbins
+
+
+def plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins):
     # Number of jobs to use
     n_jobs = max(cpu_count() - 1, 1)
 
@@ -446,18 +232,6 @@ def plot_figure():
                                                    weighting, plot_on, clim_scale, verbose, xyflip)
     print('Done')
 
-    print('Computing SO-Power Histogram...', end=" ")
-    SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times = \
-        SO_power_histogram(stats_table.peak_time, stats_table.peak_frequency,
-                           data, fs, artifacts, freq_range=[4, 25], freq_window=[1, 0.2],
-                           norm_method='shift', verbose=False)
-    print('Done')
-
-    print('Computing SO-Phase Histogram...', end=" ")
-    SOphase_hist, freq_cbins, phase_cbins = \
-        SO_phase_histogram(stats_table.peak_time, stats_table.peak_frequency,
-                           data, fs, freq_range=[4, 25], freq_window=[1, 0.2], verbose=False)
-    print('Done')
 
     # %%  Plot figure
     print('Plotting figure...', end=" ")
@@ -515,7 +289,7 @@ def plot_figure():
     ax2.set_xlabel('Time (hrs)')
 
     # Plot the scatter plot
-    peak_size = stats_table['volume'] / 300
+    peak_size = stats_table['volume'] / 250
     pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
     peak_size[peak_size > pmax] = 0
     peak_size = np.square(peak_size)
@@ -548,7 +322,7 @@ def plot_figure():
     plt.axes(ax4)
     im = ax4.imshow(SOpow_hist, extent=extent, aspect='auto')
     clims = np.percentile(SOpow_hist, [5, 98])
-    im.set_clim(0, 8.5)  #clims[0], clims[1])
+    im.set_clim(clims[0], clims[1])
     ax4.set_ylabel('Frequency (Hz)')
     ax4.invert_yaxis()
     im.set_cmap(plt.cm.get_cmap('cet_gouldian'))
@@ -563,7 +337,7 @@ def plot_figure():
     plt.axes(ax5)
     im = ax5.imshow(SOphase_hist, extent=extent, aspect='auto')
     clims = np.percentile(SOphase_hist, [5, 98])
-    im.set_clim(0.0085, 0.0118)  # ]clims[0], clims[1])
+    im.set_clim(clims[0], clims[1])
     ax5.set_ylabel('Frequency (Hz)')
     ax5.invert_yaxis()
     im.set_cmap(plt.cm.get_cmap('magma'))
@@ -578,5 +352,9 @@ def plot_figure():
 
 
 if __name__ == '__main__':
-    # Load full night extracted TF-peaks and plot figure so far
-    plot_figure()
+    quality = 'draft'
+    data_range = 'segment'
+    save_peaks = False
+    load_peaks = False
+    run_example_data(data_range, quality, save_peaks, load_peaks)
+

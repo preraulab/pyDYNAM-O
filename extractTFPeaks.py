@@ -218,148 +218,9 @@ def process_segments_params(segment_dur: float, stimes: np.ndarray):
     return window_idx, start_times
 
 
-def _revalidate_node_edges(rag, node, heap_list):
-    """Handles validation and invalidation of edges incident to a node.
-    This function invalidates all existing edges incident on `node` and inserts
-    new items in `heap_list` updated with the valid weights.
-    rag : RAG
-        The Region Adjacency Graph.
-    node : int
-        The id of the node whose incident edges are to be validated/invalidated
-        .
-    heap_list : list
-        The list containing the existing heap of edges.
-    """
-    # networkx updates data dictionary if edge exists
-    # this would mean we have to reposition these edges in
-    # heap if their weight is updated.
-    # instead we invalidate them
-
-    for nbr in rag.neighbors(node):
-        data = rag[node][nbr]
-        try:
-            # invalidate edges incident on `dst`, they have new weights
-            data['heap item'][3] = False
-            _invalidate_edge(rag, node, nbr)
-        except KeyError:
-            # will handle the case where the edge did not exist in the existing
-            # graph
-            pass
-
-        wt = data['weight']
-        heap_item = [wt, node, nbr, True]
-        data['heap item'] = heap_item
-        heapq.heappush(heap_list, heap_item)
-
-
-def _rename_node(graph, node_id, copy_id):
-    """ Rename `node_id` in `graph` to `copy_id`. """
-
-    graph._add_node_silent(copy_id)
-    graph.nodes[copy_id].update(graph.nodes[node_id])
-
-    for nbr in graph.neighbors(node_id):
-        wt = graph[node_id][nbr]['weight']
-        graph.add_edge(nbr, copy_id, {'weight': wt})
-
-    graph.remove_node(node_id)
-
-
-def _invalidate_edge(graph, n1, n2):
-    """ Invalidates the edge (n1, n2) in the heap. """
-    graph[n1][n2]['heap item'][3] = False
-
-
-def merge_hierarchical(labels, rag, thresh, rag_copy, in_place_merge,
-                       merge_func, weight_func, segment_data_LR):
-    """Perform hierarchical merging of a RAG.
-    Greedily merges the most similar pair of nodes until no edges lower than
-    `thresh` remain.
-    Parameters
-    ----------
-    labels : ndarray
-        The array of labels.
-    rag : RAG
-        The Region Adjacency Graph.
-    thresh : float
-        Regions connected by an edge with weight smaller than `thresh` are
-        merged.
-    rag_copy : bool
-        If set, the RAG copied before modifying.
-    in_place_merge : bool
-        If set, the nodes are merged in place. Otherwise, a new node is
-        created for each merge..
-    merge_func : callable
-        This function is called before merging two nodes. For the RAG `graph`
-        while merging `src` and `dst`, it is called as follows
-        ``merge_func(graph, src, dst)``.
-    weight_func : callable
-        The function to compute the new weights of the nodes adjacent to the
-        merged node. This is directly supplied as the argument `weight_func`
-        to `merge_nodes`.
-    Returns
-    -------
-    out : ndarray
-        The new labeled array.
-    """
-    # if rag_copy:
-    #     rag = rag.copy()
-
-    edge_heap = []
-    for n1, n2, data in rag.edges(data=True):
-        # Push a valid edge in the heap
-        wt = data['weight']
-        heap_item = [wt, n1, n2, True]
-        heapq.heappush(edge_heap, heap_item)
-
-        # Reference to the heap item in the graph
-        data['heap item'] = heap_item
-
-    heapq._heapify_max(edge_heap)
-
-    while len(edge_heap) > 0 and edge_heap[0][0] > thresh:
-        _, n1, n2, valid = heapq._heappop_max(edge_heap)
-
-        # Ensure popped edge is valid, if not, the edge is discarded
-        if valid:
-            # Invalidate all neigbors of `src` before its deleted
-
-            for nbr in rag.neighbors(n1):
-                _invalidate_edge(rag, n1, nbr)
-
-            for nbr in rag.neighbors(n2):
-                _invalidate_edge(rag, n2, nbr)
-
-            if not in_place_merge:
-                next_id = rag.next_id()
-                _rename_node(rag, n2, next_id)
-                src, dst = n1, next_id
-            else:
-                src, dst = n1, n2
-
-            # # Region is union of regions
-            # rag.nodes[dst]["region"] = np.union1d(rag.nodes[dst]["region"], RAG.nodes[src]["region"])
-            # #     # Border is symmetric difference of borders
-            # rag.nodes[dst]["border"] = np.setxor1d(rag.nodes[dst]["border"], RAG.nodes[src]["border"])
-
-        merge_regions(rag, src, dst)
-
-        # merge_func(rag, src, dst)
-        new_id = rag.merge_nodes(src, dst, merge_weight, extra_arguments=[segment_data_LR])
-        _revalidate_node_edges(rag, new_id, edge_heap)
-
-    label_map = np.arange(labels.max() + 1)
-    for ix, (n, d) in enumerate(rag.nodes(data=True)):
-        for label in d['labels']:
-            label_map[label] = ix
-
-    return label_map[labels]
-
-
 def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_threshold=8, max_merges=np.inf,
-                   trim_volume=0.8,
-                   downsample=None, dur_min=-np.inf, dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf, prom_min=-np.inf,
-                   plot_on=True, verbose=True) -> pd.DataFrame:
+                   trim_volume=0.8, downsample=None, dur_min=-np.inf, dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf,
+                   prom_min=-np.inf, plot_on=True, verbose=True) -> pd.DataFrame:
     """Detects TF-peaks within a spectrogram
 
     :return: Table of peak statistics
@@ -446,9 +307,10 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     # Set initial max value
     max_val = np.inf
 
-    # Unclear if any advantage to for vs. while loop construction
-    for num_merges in range(max_merges):
-        if max_val <= merge_threshold:
+    # Merge loop
+    num_merges = 1
+    while max_val >= merge_threshold:
+        if num_merges > max_merges:
             break
 
         if verbose:
@@ -476,6 +338,9 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
         if verbose:
             toc_node = timeit.default_timer()
             merge_node_time += toc_node - tic_node
+
+        #Update the merge counter
+        num_merges += 1
 
     if verbose:
         toc_merge = timeit.default_timer()
@@ -625,131 +490,3 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
         print(f'TOTAL SEGMENT TIME:  {toc_all - tic_all:.3f}s')
 
     return stats_table
-
-
-def run_TFpeak_extraction(quality='fast'):
-    # if not data:
-    # Load in data
-    csv_data = pd.read_csv('data/night_data.csv', header=None)
-    data = np.array(csv_data[0]).astype(np.float32)
-
-    # Sampling Frequency
-    fs = 100
-
-    # %% COMPUTE MULTITAPER SPECTROGRAM
-    # Number of jobs to use
-    n_jobs = max(cpu_count() - 1, 1)
-
-    # Limit frequencies from 0 to 25 Hz
-    frequency_range = [0, 30]
-
-    taper_params = [2, 3]  # Set taper params
-    time_bandwidth = taper_params[0]  # Set time-half bandwidth
-    num_tapers = taper_params[1]  # Set number of tapers (optimal is time_bandwidth*2 - 1)
-    window_params = [1, .05]  # Window size is 4s with step size of 1s
-    min_nfft = 2 ** 10  # NFFT
-    detrend_opt = 'constant'  # constant detrend
-    multiprocess = True  # use multiprocessing
-    cpus = n_jobs  # use max cores in multiprocessing
-    weighting = 'unity'  # weight each taper at 1
-    plot_on = False  # plot spectrogram
-    clim_scale = False  # do not auto-scale colormap
-    verbose = True  # print extra info
-    xyflip = False  # do not transpose spect output matrix
-
-    # MTS frequency resolution
-    df = taper_params[0] / window_params[0] * 2
-
-    # Set min duration and bandwidth based on spectral parameters
-    dur_min = window_params[0] / 2
-    bw_min = df / 2
-
-    # Max duration and bandwidth are set to be large values
-    dur_max = 5
-    bw_max = 15
-
-    # Set minimal peak height based on confidence interval lower bound of MTS
-    chi2_df = 2 * taper_params[1]
-    alpha = 0.95
-    prom_min = -pow2db(chi2_df / chi2.ppf(alpha / 2 + 0.5, chi2_df)) * 2
-
-    # Compute the multitaper spectrogram
-    spect, stimes, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
-                                                   window_params,
-                                                   min_nfft, detrend_opt, multiprocess, cpus,
-                                                   weighting, plot_on, clim_scale, verbose, xyflip)
-
-    # Define spectral coords dx dy
-    d_time = stimes[1] - stimes[0]
-    d_freq = sfreqs[1] - sfreqs[0]
-
-    # Remove baseline
-    baseline = np.percentile(spect, 2, axis=1, keepdims=True)
-    spect_baseline = np.divide(spect, baseline)
-
-    # %% DETECT TF-PEAKS
-    if quality == 'paper':
-        downsample = []
-        segment_dur = 60
-        merge_thresh = 8
-    elif quality == 'precision':
-        downsample = []
-        segment_dur = 30
-        merge_thresh = 8
-    elif quality == 'fast':
-        downsample = [2, 2]
-        segment_dur = 30
-        merge_thresh = 11
-    elif quality == 'draft':
-        downsample = [5, 1]
-        segment_dur = 30
-        merge_thresh = 13
-    else:
-        raise ValueError("Specify settings 'precision', 'fast', or 'draft'")
-
-    # Set TF-peak detection settings
-    trim_vol = 0.8
-    max_merges = 500
-    plot_on = False
-    verbose = False
-
-    # Set the size of the spectrogram samples
-    window_idxs, start_times = process_segments_params(segment_dur, stimes)
-    num_windows = len(start_times)
-
-    # Set up the parameters to pass to each window
-    dp_params = (d_time, d_freq, merge_thresh, max_merges, trim_vol, downsample, dur_min, dur_max,
-                 bw_min, bw_max, prom_min, plot_on, verbose)
-
-    #  Run jobs in parallel
-    print('Running peak detection in parallel with ' + str(n_jobs) + ' jobs...')
-    tic_outer = timeit.default_timer()
-
-    # Single chunk test
-    stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
-
-    stats_tables = Parallel(n_jobs=n_jobs)(delayed(detect_tfpeaks)(
-        spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
-                                           for num_window in tqdm(range(num_windows)))
-
-    stats_table = pd.concat(stats_tables, ignore_index=True)
-
-    toc_outer = timeit.default_timer()
-    print('Peak detection took ' + convertHMS(toc_outer - tic_outer))
-
-    # Fix the stats_table to sort by time and reset labels
-    del stats_table['label']
-    stats_table.sort_values('peak_time')
-    stats_table.reset_index()
-
-    print('Writing stats_table to file...')
-    stats_table.to_csv('data/data_night_peaks.csv')
-    print('Done')
-
-
-if __name__ == '__main__':
-    # Extract TF-peaks from scratch
-
-    print('here')
-    run_TFpeak_extraction()
-    print('done')
