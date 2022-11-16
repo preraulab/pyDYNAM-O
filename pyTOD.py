@@ -132,7 +132,7 @@ def run_TFpeak_detection(data=None, fs=None, downsample=None, segment_dur=60, me
     # # First segment test
     # stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
 
-    stats_tables = Parallel(n_jobs=4)(delayed(detect_tfpeaks)(
+    stats_tables = Parallel(n_jobs=8)(delayed(detect_tfpeaks)(
         spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
                                            for num_window in tqdm(range(num_windows)))
 
@@ -205,7 +205,7 @@ def compute_SOPHs(data, fs, stages, stats_table):
 
 def plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins):
     # Number of jobs to use
-    n_jobs = max(cpu_count() - 1, 1)
+    n_jobs = max(cpu_count(), 1)
 
     # Limit frequencies from 4 to 25 Hz
     frequency_range = [4, 25]
@@ -352,9 +352,9 @@ def plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_no
 
 
 if __name__ == '__main__':
-    quality = 'draft'
-    data_range = 'segment'
-    save_peaks = False
+    quality = 'fast'
+    data_range = 'night'
+    save_peaks = True
     load_peaks = False
     run_example_data(data_range, quality, save_peaks, load_peaks)
 

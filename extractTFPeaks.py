@@ -326,7 +326,11 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
         if verbose:
             tic_borders = timeit.default_timer()
 
-        merge_regions(RAG, src, dst)
+        # merge_regions(RAG, src, dst)
+        # Region is union of regions
+        RAG.nodes[dst]["region"] = np.union1d(RAG.nodes[dst]["region"], RAG.nodes[src]["region"])
+        # Border is symmetric difference of borders
+        RAG.nodes[dst]["border"] = np.setxor1d(RAG.nodes[dst]["border"], RAG.nodes[src]["border"])
 
         if verbose:
             toc_borders = timeit.default_timer()
@@ -339,7 +343,7 @@ def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
             toc_node = timeit.default_timer()
             merge_node_time += toc_node - tic_node
 
-        #Update the merge counter
+        # Update the merge counter
         num_merges += 1
 
     if verbose:
