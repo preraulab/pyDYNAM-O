@@ -134,7 +134,7 @@ def run_TFpeak_detection(data=None, fs=None, downsample=None, segment_dur=60, me
 
     stats_tables = Parallel(n_jobs=8)(delayed(detect_tfpeaks)(
         spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
-                                           for num_window in tqdm(range(num_windows)))
+                                      for num_window in tqdm(range(num_windows)))
 
     stats_table = pd.concat(stats_tables, ignore_index=True)
 
@@ -203,7 +203,8 @@ def compute_SOPHs(data, fs, stages, stats_table):
     return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins, phase_cbins
 
 
-def plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins):
+def plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist,
+                freq_cbins):
     # Number of jobs to use
     n_jobs = max(cpu_count(), 1)
 
@@ -232,14 +233,19 @@ def plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_no
                                                    weighting, plot_on, clim_scale, verbose, xyflip)
     print('Done')
 
-
-    # %%  Plot figure
+    # %% Plot figure
     print('Plotting figure...', end=" ")
-    fig = plt.figure(figsize=(8.5 * .8, 11 * .8))
+
+    lab_size = 9
+    clab_size = 8
+    title_size = 12
+    tick_size = 7
+
+    fig = plt.figure(figsize=(8.5 * .7, 11 * .7))
     gs = gridspec.GridSpec(nrows=5, ncols=2, height_ratios=[0.01, .2, .01, .2, .3],
                            width_ratios=[.5, .5],
                            hspace=0.4, wspace=0.5,
-                           left=0.1, right=0.90,
+                           left=0.08, right=.875,
                            bottom=0.05, top=0.95)
 
     ax0 = fig.add_subplot(gs[0, :])
@@ -264,10 +270,11 @@ def plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_no
     ax2.set_position([pos2[0], pos2[1], pos1[2], pos1[1] - pos2[1]])
 
     # Plot hypnogram
+    plt.axes(ax0)
     hypnoplot(stages.Time.values / 3600, stages.Stage.values, ax0)
-    ax0.set_xticks([])
-    ax0.set_yticklabels(ax0.get_yticklabels(), fontsize=6)
-    ax0.set_title('EEG Spectrogram')
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
+    ax0.set_title('EEG Spectrogram', fontsize=title_size, fontweight='bold')
 
     # Plot spectrogram
     extent = stimes[0] / 3600, stimes[-1] / 3600, frequency_range[1], frequency_range[0]
@@ -275,21 +282,26 @@ def plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_no
     im = ax1.imshow(pow2db(spect), extent=extent, aspect='auto')
     clims = np.percentile(pow2db(spect[~np.isnan(spect)]), [5, 98])
     im.set_clim(clims[0], clims[1])
-    ax1.set_ylabel('Frequency (Hz)')
+    ax1.set_ylabel('Frequency (Hz)', fontsize=lab_size)
     ax1.invert_yaxis()
-    ax1.set_xticks([])
+    # ax1.set_xticks([])
     im.set_cmap(plt.cm.get_cmap('cet_rainbow4'))
     cbar = outside_colorbar(fig, ax1, im, gap=0.01, shrink=0.8)
-    cbar.set_label("Power (dB)", fontsize=10)
+    cbar.set_label("Power (dB)", fontsize=clab_size)
     cbar.ax.tick_params(labelsize=7)
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
 
     # Plot SO_power
+    plt.axes(ax2)
     ax2.plot(np.divide(SO_power_times, 3600), SO_power_norm, 'b', linewidth=1)
     ax2.set_xlim([SO_power_times[0] / 3500, SO_power_times[-1] / 3600])
-    ax2.set_xlabel('Time (hrs)')
+    # ax2.set_xlabel('Time (hrs)', fontsize=lab_size)
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
 
     # Plot the scatter plot
-    peak_size = stats_table['volume'] / 250
+    peak_size = stats_table['volume'] / 200
     pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
     peak_size[peak_size > pmax] = 0
     peak_size = np.square(peak_size)
@@ -309,52 +321,59 @@ def plot_figure(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_no
     cbar = outside_colorbar(fig, ax3, sp, gap=0.01, shrink=0.8)
     cbar.set_ticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
     cbar.set_ticklabels(['-π', '-π/2', '0', 'π/2', 'π'], fontsize=7)
-    cbar.set_label("Phase (rad)", fontsize=10)
-    cbar.ax.tick_params(labelsize=7)
+    cbar.set_label("Phase (rad)", fontsize=clab_size)
+    cbar.ax.tick_params(labelsize=lab_size)
 
     ax3.set_xlabel('Time (hrs)')
-    ax3.set_ylabel('Frequency (Hz)')
-    ax3.set_title('Extracted Time-Frequency Peaks')
+    ax3.set_ylabel('Frequency (Hz)', fontsize=lab_size)
+    ax3.set_title('Extracted Time-Frequency Peaks', fontsize=title_size, fontweight='bold')
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
 
     # SO-power Histogram
-    ax4.set_title('SO-power Histogram')
+    ax4.set_title('SO-power Histogram', fontsize=title_size, fontweight='bold')
     extent = SO_cbins[0], SO_cbins[-1], freq_cbins[-1], freq_cbins[0]
     plt.axes(ax4)
     im = ax4.imshow(SOpow_hist, extent=extent, aspect='auto')
     clims = np.percentile(SOpow_hist, [5, 98])
-    im.set_clim(clims[0], clims[1])
-    ax4.set_ylabel('Frequency (Hz)')
+    im.set_clim(0, 8.4282)  # clims[0], clims[1])
+    ax4.set_ylabel('Frequency (Hz)', fontsize=lab_size)
     ax4.invert_yaxis()
     im.set_cmap(plt.cm.get_cmap('cet_gouldian'))
     cbar = outside_colorbar(fig, ax4, im, gap=0.01, shrink=0.6)
-    cbar.set_label("Density", fontsize=10)
+    cbar.set_label("Density", fontsize=clab_size)
     cbar.ax.tick_params(labelsize=7)
-    ax4.set_xlabel('% SO-Power')
+    ax4.set_xlabel('% SO-Power', fontsize=lab_size)
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
 
     # SO-phase Histogram
-    ax5.set_title('SO-power Histogram')
+    ax5.set_title('SO-Phase Histogram', fontsize=title_size, fontweight='bold')
     extent = -np.pi, np.pi, freq_cbins[-1], freq_cbins[0]
     plt.axes(ax5)
     im = ax5.imshow(SOphase_hist, extent=extent, aspect='auto')
     clims = np.percentile(SOphase_hist, [5, 98])
-    im.set_clim(clims[0], clims[1])
-    ax5.set_ylabel('Frequency (Hz)')
+    im.set_clim(0.0071, 0.0137)  #
+    ax5.set_ylabel('Frequency (Hz)', fontsize=lab_size)
     ax5.invert_yaxis()
     im.set_cmap(plt.cm.get_cmap('magma'))
     cbar = outside_colorbar(fig, ax5, im, gap=0.01, shrink=0.6)
-    cbar.set_label("Proportion", fontsize=10)
+    cbar.set_label("Proportion", fontsize=clab_size)
     cbar.ax.tick_params(labelsize=7)
     plt.xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi], ['-π', '-π/2', '0', 'π/2', 'π'])
-    plt.xlabel('SO-Phase (rad)')
+    plt.xlabel('SO-Phase (rad)', fontsize=lab_size)
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
 
     print('Done')
     plt.show()
 
 
 if __name__ == '__main__':
-    quality = 'fast'
-    data_range = 'night'
-    save_peaks = True
-    load_peaks = False
-    run_example_data(data_range, quality, save_peaks, load_peaks)
+    quality = 'fast'  # Quality setting 'precision','fast', or 'draft'
+    data_range = 'segment'  # Segment vs. night
+    save_peaks = True  # Save csv of peaks if computing
+    load_peaks = True  # Load from csv vs computing
 
+    # Run example data
+    run_example_data(data_range, quality, save_peaks, load_peaks)

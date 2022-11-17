@@ -253,7 +253,7 @@ def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dir):
     return detected_artifacts
 
 
-def detect_artifacts(data, fs, hf_cut=25, bb_cut=0.1, crit_high=4.5, crit_broad=4.5,
+def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=4.5,
                      smooth_duration=2, detrend_duration=5*60):
     """An iterative method to detect artifacts based on data distribution spread
 
