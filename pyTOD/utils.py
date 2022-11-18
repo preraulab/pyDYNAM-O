@@ -1,11 +1,19 @@
 from itertools import groupby
+
 import numpy as np
+from joblib import cpu_count
+from matplotlib import gridspec
+from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 from scipy.signal import convolve, butter, hilbert, sosfiltfilt
+from scipy.stats import chi2
+import matplotlib.pyplot as plt
+import colorcet
+from pyTOD.multitaper import multitaper_spectrogram
 
 
 def nan_zscore(data):
-    """Computes zscore ignoring nan values
+    """Computes z-score ignoring nan values
 
     :param data: Input data
     :return: zscored data
@@ -18,8 +26,8 @@ def nan_zscore(data):
 
 
 def pow2db(y):
-    """
-    Converts power to dB
+    """Converts power to dB, ignoring nans
+
     :param y: values to convert
     :return: val_dB value in dB
     """
@@ -37,6 +45,17 @@ def pow2db(y):
         ydB = (10 * np.log10(y) + 300) - 300
 
     return ydB
+
+
+def min_prominence(num_tapers, alpha=0.95):
+    """Set minimal peak height based on confidence interval lower bound of MTS
+
+    :param num_tapers: Number of tapers
+    :param alpha: Significance level
+    :return: min prominence
+    """
+    chi2_df = 2 * num_tapers
+    return -pow2db(chi2_df / chi2.ppf(alpha / 2 + 0.5, chi2_df)) * 2
 
 
 def convertHMS(seconds: float) -> str:
@@ -181,7 +200,6 @@ def hypnoplot(time, stage, ax=None, plot_buffer=0.8):
         ax.add_patch(Rectangle((ptime[c[1]], ylim[0]), ptime[c[2]] - ptime[c[1]], ylim[1] - ylim[0], facecolor=color))
 
 
-
 def butter_bandpass(lowcut, highcut, fs, order=50):
     """Performs a zero-phase butterworth bandpass filter on SOS
 
@@ -254,7 +272,7 @@ def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dir):
 
 
 def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=4.5,
-                     smooth_duration=2, detrend_duration=5*60):
+                     smooth_duration=2, detrend_duration=5 * 60):
     """An iterative method to detect artifacts based on data distribution spread
 
     :param data: Signal data
@@ -275,8 +293,174 @@ def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=
 
     bad_inds = np.abs(nan_zscore(data)) > 10 | np.isnan(data) | np.isinf(data) | find_flat(data)
 
-    hf_artifacts = zscore_remove(data_high, crit_high, bad_inds, smooth_dur=smooth_duration * fs, detrend_dir=detrend_duration * fs)
-    bb_artifacts = zscore_remove(data_broad, crit_broad, bad_inds, smooth_dur=smooth_duration * fs, detrend_dir=detrend_duration * fs)
+    hf_artifacts = zscore_remove(data_high, crit_high, bad_inds, smooth_dur=smooth_duration * fs,
+                                 detrend_dir=detrend_duration * fs)
+    bb_artifacts = zscore_remove(data_broad, crit_broad, bad_inds, smooth_dur=smooth_duration * fs,
+                                 detrend_dir=detrend_duration * fs)
 
     return np.logical_or(hf_artifacts, bb_artifacts)
 
+
+def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist,
+                 freq_cbins):
+    """Creates a summary plot with hypnogram, spectrogram, SO-power, scatter plot, and SOPHs
+
+    :param data: Time series data
+    :param fs: Sampling frequency
+    :param stages: Stages dataframe
+    :param stats_table: Peak statistics table
+    :param SOpow_hist: SO-power histogram
+    :param SO_cbins: SO-power bin centers
+    :param SO_power_norm: Normalization method
+    :param SO_power_times: SO-power times
+    :param SOphase_hist: SO-phase histogram
+    :param freq_cbins: Frequency bin centers
+    """
+    # Limit frequencies from 4 to 25 Hz
+    frequency_range = [4, 25]
+
+    taper_params = [15, 29]  # Set taper params
+    time_bandwidth = taper_params[0]  # Set time-half bandwidth
+    num_tapers = taper_params[1]  # Set number of tapers (optimal is time_bandwidth*2 - 1)
+    window_params = [30, 10]  # Window size is 4s with step size of 1s
+    min_nfft = 0  # NFFT
+    detrend_opt = 'linear'  # constant detrend
+    multiprocess = True  # use multiprocessing
+    cpus = cpu_count()  # use max cores in multiprocessing
+    weighting = 'unity'  # weight each taper at 1
+
+    # Compute the multitaper spectrogram
+    spect, stimes, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
+                                                   window_params,
+                                                   min_nfft, detrend_opt, multiprocess, cpus,
+                                                   weighting, False, False, False, False)
+
+    lab_size = 9
+    clab_size = 8
+    title_size = 12
+    tick_size = 7
+
+    fig = plt.figure(figsize=(8.5 * .7, 11 * .7))
+    gs = gridspec.GridSpec(nrows=5, ncols=2, height_ratios=[0.01, .2, .01, .2, .3],
+                           width_ratios=[.5, .5],
+                           hspace=0.4, wspace=0.5,
+                           left=0.08, right=.875,
+                           bottom=0.05, top=0.95)
+
+    ax0 = fig.add_subplot(gs[0, :])
+    ax1 = fig.add_subplot(gs[1, :])
+    ax2 = fig.add_subplot(gs[2, :])
+    ax3 = fig.add_subplot(gs[3, :])
+    ax4 = fig.add_subplot(gs[4, 0])
+    ax5 = fig.add_subplot(gs[4, 1])
+
+    # Link axes
+    ax0.sharex(ax1)
+    ax2.sharex(ax1)
+    ax3.sharex(ax1)
+    ax3.sharey(ax1)
+    ax4.sharey(ax1)
+    ax5.sharey(ax1)
+
+    pos0 = ax0.get_position().bounds
+    pos1 = ax1.get_position().bounds
+    pos2 = ax2.get_position().bounds
+    ax0.set_position([pos1[0], pos1[1] + pos1[3], pos0[2], pos1[1] - pos2[1]])
+    ax2.set_position([pos2[0], pos2[1], pos1[2], pos1[1] - pos2[1]])
+
+    # Plot hypnogram
+    plt.axes(ax0)
+    hypnoplot(stages.Time.values / 3600, stages.Stage.values, ax0)
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
+    ax0.set_title('EEG Spectrogram', fontsize=title_size, fontweight='bold')
+
+    # Plot spectrogram
+    extent = stimes[0] / 3600, stimes[-1] / 3600, frequency_range[1], frequency_range[0]
+    plt.axes(ax1)
+    im = ax1.imshow(pow2db(spect), extent=extent, aspect='auto')
+    clims = np.percentile(pow2db(spect[~np.isnan(spect)]), [5, 98])
+    im.set_clim(clims[0], clims[1])
+    ax1.set_ylabel('Frequency (Hz)', fontsize=lab_size)
+    ax1.invert_yaxis()
+    im.set_cmap(plt.cm.get_cmap('cet_rainbow4'))
+    cbar = outside_colorbar(fig, ax1, im, gap=0.01, shrink=0.8)
+    cbar.set_label("Power (dB)", fontsize=clab_size)
+    cbar.ax.tick_params(labelsize=7)
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
+
+    # Plot SO_power
+    plt.axes(ax2)
+    ax2.plot(np.divide(SO_power_times, 3600), SO_power_norm, 'b', linewidth=1)
+    ax2.set_xlim([SO_power_times[0] / 3500, SO_power_times[-1] / 3600])
+    # ax2.set_xlabel('Time (hrs)', fontsize=lab_size)
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
+
+    # Plot the scatter plot
+    peak_size = stats_table['volume'] / 200
+    pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
+    peak_size[peak_size > pmax] = 0
+    peak_size = np.square(peak_size)
+
+    x = np.divide(stats_table.peak_time, 3600)
+    y = [stats_table.peak_frequency]
+    c = [stats_table.phase]
+
+    sp = ax3.scatter(x, y, peak_size, c, cmap='hsv')
+    ax3.set_xlim([stimes[0] / 3500, stimes[-1] / 3600])
+    ax3.set_ylim(frequency_range)
+
+    # Shift the HSV colormap
+    hsv = plt.colormaps['hsv'].resampled(2 ** 12)
+    hsv_rot = ListedColormap(hsv(np.roll(np.linspace(0, 1, 2 ** 12), -650)))
+    sp.set_cmap(hsv_rot)
+    cbar = outside_colorbar(fig, ax3, sp, gap=0.01, shrink=0.8)
+    cbar.set_ticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
+    cbar.set_ticklabels(['-π', '-π/2', '0', 'π/2', 'π'], fontsize=7)
+    cbar.set_label("Phase (rad)", fontsize=clab_size)
+    cbar.ax.tick_params(labelsize=lab_size)
+
+    ax3.set_xlabel('Time (hrs)')
+    ax3.set_ylabel('Frequency (Hz)', fontsize=lab_size)
+    ax3.set_title('Extracted Time-Frequency Peaks', fontsize=title_size, fontweight='bold')
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
+
+    # SO-power Histogram
+    ax4.set_title('SO-power Histogram', fontsize=title_size, fontweight='bold')
+    extent = SO_cbins[0], SO_cbins[-1], freq_cbins[-1], freq_cbins[0]
+    plt.axes(ax4)
+    im = ax4.imshow(SOpow_hist, extent=extent, aspect='auto')
+    clims = np.percentile(SOpow_hist, [5, 98])
+    im.set_clim(clims[0], clims[1])
+    ax4.set_ylabel('Frequency (Hz)', fontsize=lab_size)
+    ax4.invert_yaxis()
+    im.set_cmap(plt.cm.get_cmap('cet_gouldian'))
+    cbar = outside_colorbar(fig, ax4, im, gap=0.01, shrink=0.6)
+    cbar.set_label("Density", fontsize=clab_size)
+    cbar.ax.tick_params(labelsize=7)
+    ax4.set_xlabel('% SO-Power', fontsize=lab_size)
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
+
+    # SO-phase Histogram
+    ax5.set_title('SO-Phase Histogram', fontsize=title_size, fontweight='bold')
+    extent = -np.pi, np.pi, freq_cbins[-1], freq_cbins[0]
+    plt.axes(ax5)
+    im = ax5.imshow(SOphase_hist, extent=extent, aspect='auto')
+    clims = np.percentile(SOphase_hist, [5, 98])
+    im.set_clim(clims[0], clims[1])
+    ax5.set_ylabel('Frequency (Hz)', fontsize=lab_size)
+    ax5.invert_yaxis()
+    im.set_cmap(plt.cm.get_cmap('magma'))
+    cbar = outside_colorbar(fig, ax5, im, gap=0.01, shrink=0.6)
+    cbar.set_label("Proportion", fontsize=clab_size)
+    cbar.ax.tick_params(labelsize=7)
+    plt.xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi], ['-π', '-π/2', '0', 'π/2', 'π'])
+    plt.xlabel('SO-Phase (rad)', fontsize=lab_size)
+    plt.xticks(fontsize=tick_size)
+    plt.yticks(fontsize=tick_size)
+
+    plt.show()

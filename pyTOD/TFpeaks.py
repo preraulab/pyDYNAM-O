@@ -1,16 +1,13 @@
 import timeit
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import skimage.future.graph
-from joblib import Parallel, delayed, cpu_count
-from scipy.stats.distributions import chi2
 from skimage import measure, segmentation, future, color, morphology
 from skimage.transform import resize
-from tqdm import tqdm
-from multitaper_toolbox.python.multitaper_spectrogram_python import multitaper_spectrogram
-from pyTODhelper import *
-import heapq
+
+from pyTOD.utils import *
 
 
 def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: np.ndarray) -> float:
@@ -218,7 +215,7 @@ def process_segments_params(segment_dur: float, stimes: np.ndarray):
     return window_idx, start_times
 
 
-def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_threshold=8, max_merges=np.inf,
+def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_threshold=8, max_merges=np.inf,
                    trim_volume=0.8, downsample=None, dur_min=-np.inf, dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf,
                    prom_min=-np.inf, plot_on=True, verbose=True) -> pd.DataFrame:
     """Detects TF-peaks within a spectrogram
