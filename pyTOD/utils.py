@@ -1,5 +1,7 @@
 from itertools import groupby
 
+import matplotlib
+import numpy
 import numpy as np
 from joblib import cpu_count
 from matplotlib import gridspec
@@ -13,10 +15,18 @@ from pyTOD.multitaper import multitaper_spectrogram
 
 
 def nan_zscore(data):
-    """Computes z-score ignoring nan values
+    """
+    Compute modified z-score for a numpy array.
 
-    :param data: Input data
-    :return: zscored data
+    Parameters
+    ----------
+    data : numpy array
+        The data to be normalized.
+
+    Returns
+    -------
+    numpy array
+        The normalized data.
     """
     # Compute modified z-score
     mid = np.nanmean(data)
@@ -26,10 +36,33 @@ def nan_zscore(data):
 
 
 def pow2db(y):
-    """Converts power to dB, ignoring nans
+    """Converts power to dB ignoring nans.
 
-    :param y: values to convert
-    :return: val_dB value in dB
+    Parameters
+    ----------
+    y : float or array
+        Power to be converted to dB.
+
+    Returns
+    -------
+    ydB : float or array
+        Power in dB.
+
+    Notes
+    -----
+    This function is a wrapper for the following:
+
+    .. math::
+        ydB = (10 * log10(y) + 300) - 300
+
+    Examples
+    --------
+    >>> pow2db(1)
+    0.0
+    >>> pow2db(0)
+    nan
+    >>> pow2db([1, 0, 1])
+    array([  0.,  nan,   0.])
     """
 
     if isinstance(y, int) or isinstance(y, float):
@@ -47,22 +80,48 @@ def pow2db(y):
     return ydB
 
 
-def min_prominence(num_tapers, alpha=0.95):
+def min_prominence(num_tapers: int, alpha: float = 0.95) -> float:
     """Set minimal peak height based on confidence interval lower bound of MTS
 
-    :param num_tapers: Number of tapers
-    :param alpha: Significance level
-    :return: min prominence
+    Parameters
+    ----------
+    num_tapers : int
+        Number of tapers used in MTS.
+    alpha : float, optional
+        Confidence level.
+
+    Returns
+    -------
+    min_prominence : float
+        Minimal peak height.
+
+    Notes
+    -----
+    The minimal peak height is calculated as the lower bound of the confidence
+    interval of the MTS spectrum. The confidence interval is calculated using
+    the chi-squared distribution.
     """
     chi2_df = 2 * num_tapers
     return -pow2db(chi2_df / chi2.ppf(alpha / 2 + 0.5, chi2_df)) * 2
 
 
 def convertHMS(seconds: float) -> str:
-    """Converts seconds to HH:MM:SS string
+    """Convert seconds to hours, minutes, and seconds.
 
-    :param seconds:
-    :return:
+    Parameters
+    ----------
+    seconds : float
+        The number of seconds to convert.
+
+    Returns
+    -------
+    str
+        A string of the form "HH:MM:SS"
+
+    Examples
+    --------
+    >>> convertHMS(3661)
+    '01:01:01'
     """
     seconds = seconds % (24 * 3600)
     hour = seconds // 3600
@@ -76,10 +135,19 @@ def convertHMS(seconds: float) -> str:
 def arange_inc(start: float, stop: float, step: float) -> np.ndarray:
     """Inclusive numpy arange
 
-    :param start: start value
-    :param stop: stop value
-    :param step: step value
-    :return: range = [start:step:stop]
+    Parameters
+    ----------
+    start : float
+        The start of the range.
+    stop : float
+        The end of the range.
+    step : float
+        The step size.
+
+    Returns
+    -------
+    np.ndarray
+        The range.
     """
     stop += (lambda x: step * max(0.1, x) if x < 0.5 else 0)((lambda n: n - int(n))((stop - start) / step + 1))
     return np.arange(start, stop, step)
@@ -88,14 +156,30 @@ def arange_inc(start: float, stop: float, step: float) -> np.ndarray:
 def create_bins(range_start: float, range_end: float, bin_width: float, bin_step: float, bin_method: str = 'full'):
     """Create bins allowing for various overlap and windowing schemes
 
-    :param bin_range: 1x2 array of start-stop values
-    :param bin_width: Bin width
-    :param bin_step: Bin step
-    :param bin_method: 'full' starts the first bin at bin_range[0]. 'partial' starts the first bin
-    with its bin center at bin_range(1) but ignores all values below bin_range[0]. 'full_extend' starts
-    the first bin at bin_range[0] - bin_width/2.Note that it is possible to get values outside of bin_range
-    with this setting.
-    :return: bin_edges, bin_centers
+    Parameters
+    ----------
+    range_start : float
+        The start of the range of the bins.
+    range_end : float
+        The end of the range of the bins.
+    bin_width : float
+        The width of the bins.
+    bin_step : float
+        The step size between the bins.
+    bin_method : str, optional
+        The method for creating the bins.
+        The default is 'full'.
+        'full' : Only full-width bins, with bin edges starting at range_start and ending range_end
+        'partial' : Includes partial width bins, with bin centers starting at range_start and ending range_end
+        'extend' : Only full-width bins extending +- bin_width/2 outside the range, with bin centers starting at
+                   range_start and ending range_end
+
+    Returns
+    -------
+    bin_edges : ndarray
+        The edges of the bins.
+    bin_centers : ndarray
+        The centers of the bins.
     """
 
     bin_method = str.lower(bin_method)
@@ -125,13 +209,25 @@ def create_bins(range_start: float, range_end: float, bin_width: float, bin_step
 def outside_colorbar(fig_obj, ax_obj, graphic_obj, gap=0.01, shrink=1, label=""):
     """Creates a colorbar that is outside the axis bounds and does not shrink the axis
 
-    :param fig_obj: Figure object
-    :param ax_obj: Axis object
-    :param graphic_obj: Graphics object (image, scatterplot, etc.)
-    :param gap: Gap between bar and axis
-    :param shrink: Colorbar shrink factor
-    :param label: Colorbar label
-    :return: colorbar object
+    Parameters
+    ----------
+    fig_obj : matplotlib.figure.Figure
+        The figure object that contains the axis.
+    ax_obj : matplotlib.axes.Axes
+        The axis object that contains the graphic object.
+    graphic_obj : graphics object (image, scatterplot, etc.)
+        The graphic object that is to be plotted.
+    gap : float, optional
+        The gap between the axis and the colorbar.
+    shrink : float, optional
+        The shrink factor of the colorbar.
+    label : str, optional
+        The label of the colorbar.
+
+    Returns
+    -------
+    cbar : matplotlib.colorbar.Colorbar
+        The colorbar object.
     """
 
     ax_pos = ax_obj.get_position().bounds  # Axis position
@@ -147,33 +243,81 @@ def outside_colorbar(fig_obj, ax_obj, graphic_obj, gap=0.01, shrink=1, label="")
     return cbar
 
 
-def consecutive(val):
-    vals = [v[0] for v in groupby(val)]
-    cons = [sum(1 for i in g) for v, g in groupby(val)]
+def consecutive(data):
+    """This function takes a list of values and returns a list of tuples.
+    Each tuple contains the value, the start index, and the end index
+    of a consecutive sequence of that value.
+
+    Parameters
+    ----------
+    data : list
+        A list of values.
+
+    Returns
+    -------
+    list
+        A list of tuples. Each tuple contains the value, the start index,
+        and the end index of a consecutive sequence of that value.
+
+    Examples
+    --------
+    >> consecutive([1, 1, 1, 2, 2, 3, 3, 3, 3])
+    [(1, 0, 2), (2, 3, 4), (3, 5, 8)]
+    """
+    vals = [v[0] for v in groupby(data)]
+    cons = [sum(1 for i in g) for v, g in groupby(data)]
 
     start_inds = np.cumsum(np.insert(cons, 0, 0))
-    end_inds = np.add(start_inds[0:-1], cons)
+    end_inds = np.add(start_inds[0:-1], cons) - 1
 
     return list(zip(vals, start_inds, end_inds))
 
 
-def find_flat(data, minsize=100):
+def find_flat(data: list, minsize: int = 100) -> list:
+    """Finds the indices of flat regions in a 1D array.
+
+    Parameters
+    ----------
+    data : list
+        The data to search for flat regions.
+    minsize : int, optional
+        The minimum size of a flat region to be considered.
+
+    Returns
+    -------
+    numpy.ndarray
+    A boolean array of the same length as `data` with True values at the indices of flat regions.
+    """
     inds = np.full((len(data)), False)
+
+    # Find trains of consecutive equal data
     for c in consecutive(data):
-        if c[2] - c[1] >= minsize:
-            inds[c[1]:c[2]] = True
+        print(c)
+        print(c[2] - c[1] + 1)
+        if c[2] - c[1] + 1 >= minsize:
+            inds[c[1]:c[2] + 1] = True
 
     return inds
 
 
-def hypnoplot(time, stage, ax=None, plot_buffer=0.8):
-    """Plots the hypnogram
+def hypnoplot(time: list, stage: list, ax: matplotlib.axes.Axes = None, plot_buffer: float = 0.8):
+    """
+    Plots the hypnogram
 
-    :param time: Stage times
-    :param stage: Stage values 6:art, 5:W, 4:R, 3:N1, 2:N2, 1:N3, 0:Unknown
-    :param ax: axis for plotting
-    :param plot_buffer: how much space above/below
-    :return:
+    Parameters
+    ----------
+    time : list
+        Time vector in seconds.
+    stage : list
+        Sleep stage vector.
+    ax : matplotlib.axes.Axes, optional
+        Axes to plot on. If not specified, a new figure will be created.
+    plot_buffer : float, optional
+        The amount of space to leave above and below the hypnogram.
+
+    Returns
+    -------
+    None
     """
     if ax is None:
         ax = plt.axes()
@@ -201,13 +345,23 @@ def hypnoplot(time, stage, ax=None, plot_buffer=0.8):
 
 
 def butter_bandpass(lowcut, highcut, fs, order=50):
-    """Performs a zero-phase butterworth bandpass filter on SOS
+    """Design a Butterworth bandpass filter.
 
-    :param lowcut: Low-end frequency cutoff
-    :param highcut: High-end frequency cutoff
-    :param fs: Sampling Frequency
-    :param order: Filter order
-    :return: Filtered data
+    Parameters
+    ----------
+    lowcut : float
+        Low cutoff frequency in Hz.
+    highcut : float
+        High cutoff frequency in Hz.
+    fs : float
+        Sample rate in Hz.
+    order : int, optional
+        Filter order.
+
+    Returns
+    -------
+    sos : ndarray
+        Second-order sections representation of the filter.
     """
     nyq = 0.5 * fs
     low = lowcut / nyq
@@ -219,10 +373,21 @@ def butter_bandpass(lowcut, highcut, fs, order=50):
 def butter_highpass(lowcut, fs, order=50):
     """Performs a zero-phase butterworth bandpass filter on SOS
 
-    :param lowcut: Low-end frequency cutoff
-    :param fs: Sampling Frequency
-    :param order: Filter order
-    :return: Filtered data
+    Parameters
+    ----------
+    lowcut : float
+        Low cutoff frequency in Hz.
+    highcut : float
+        High cutoff frequency in Hz.
+    fs : float
+        Sample rate in Hz.
+    order : int, optional
+        Filter order.
+
+    Returns
+    -------
+    filt_data : ndarray
+        Filtered data
     """
     nyq = 0.5 * fs
     low = lowcut / nyq
@@ -233,12 +398,23 @@ def butter_highpass(lowcut, fs, order=50):
 def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dir):
     """Find artifacts by removing data until none left outside of criterion
 
-    :param data: Data sequence
-    :param crit: Critical value in terms of std from mean
-    :param bad_inds: Data to remove prior to procedure
-    :param smooth_dur: Duration (in samples) of smoothing window for mean filter
-    :param detrend_dir: Duration (in samples) of detrending window for mean filter
-    :return: Detected arifacts
+    Parameters
+    ----------
+    data : array_like
+        Data sequence
+    crit : float
+        Critical value in terms of std from mean
+    bad_inds : array_like, optional
+        Data to remove prior to procedure
+    smooth_dur : int
+        Duration (in samples) of smoothing window for mean filter
+    detrend_dir : int
+        Duration (in samples) of detrending window for mean filter
+
+    Returns
+    -------
+    detected_artifacts : array_like
+        Detected artifacts
     """
     # Get signal envelope
     signal_envelope = np.abs(hilbert(data))
@@ -275,15 +451,33 @@ def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=
                      smooth_duration=2, detrend_duration=5 * 60):
     """An iterative method to detect artifacts based on data distribution spread
 
-    :param data: Signal data
-    :param fs: Sampling frequency
-    :param hf_cut: High-frequency filter cut (in Hz)
-    :param bb_cut: Broadband filter cut (in Hz)
-    :param crit_high: Criterion value for high-frequency data
-    :param crit_broad: Criterion value for broadband data
-    :param smooth_duration: Duration of smoothing window (in seconds)
-    :param detrend_duration: Duration of detrending window (in seconds)_
-    :return:
+        Parameters
+    ----------
+    data : array_like
+        The data to be filtered.
+    fs : float
+        The sampling frequency of the data.
+    hf_cut : float, optional
+        The high-pass cutoff frequency for the high-frequency artifact detection.
+        Default is 35 Hz.
+    bb_cut : float, optional
+        The high-pass cutoff frequency for the broadband artifact detection.
+        Default is 0.1 Hz.
+    crit_high : float, optional
+        The z-score threshold for the high-frequency artifact detection.
+        Default is 4.5.
+    crit_broad : float, optional
+        The z-score threshold for the broadband artifact detection.
+        Default is 4.5.
+    smooth_duration : float, optional
+        The duration of the smoothing window in seconds. Default is 2 seconds.
+    detrend_duration : float, optional
+        The duration of the detrending window in seconds. Default is 5 minutes.
+
+    Returns
+    -------
+    artifacts : array_like
+        A boolean array of the same length as the input data, where True indicates an artifact.
     """
     highfilt = butter_highpass(hf_cut, fs, order=50)
     broadfilt = butter_highpass(bb_cut, fs, order=50)
@@ -305,16 +499,32 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
                  freq_cbins):
     """Creates a summary plot with hypnogram, spectrogram, SO-power, scatter plot, and SOPHs
 
-    :param data: Time series data
-    :param fs: Sampling frequency
-    :param stages: Stages dataframe
-    :param stats_table: Peak statistics table
-    :param SOpow_hist: SO-power histogram
-    :param SO_cbins: SO-power bin centers
-    :param SO_power_norm: Normalization method
-    :param SO_power_times: SO-power times
-    :param SOphase_hist: SO-phase histogram
-    :param freq_cbins: Frequency bin centers
+        Parameters
+    ----------
+    data : ndarray
+        The raw EEG data.
+    fs : int
+        The sampling frequency of the data.
+    stages : pandas.DataFrame
+        A pandas DataFrame containing the sleep stages.
+    stats_table : pandas.DataFrame
+        A pandas DataFrame containing the statistics of the extracted peaks.
+    SOpow_hist : ndarray
+        A 2D histogram of the SO-power.
+    SO_cbins : ndarray
+        The bins used to create the SO-power histogram.
+    SO_power_norm : ndarray
+        The normalized SO-power.
+    SO_power_times : ndarray
+        The times corresponding to the SO-power.
+    SOphase_hist : ndarray
+        A 2D histogram of the SO-phase.
+    freq_cbins : ndarray
+        The bins used to create the SO-phase histogram.
+
+    Returns
+    -------
+    None
     """
     # Limit frequencies from 4 to 25 Hz
     frequency_range = [4, 25]
