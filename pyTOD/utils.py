@@ -61,7 +61,7 @@ def pow2db(y):
     0.0
     >>> pow2db(0)
     nan
-    >>> pow2db([1, 0, 1])
+    >>> pow2db([1, numpy.nan, 1])
     array([  0.,  nan,   0.])
     """
 
@@ -133,7 +133,7 @@ def convertHMS(seconds: float) -> str:
 
 
 def arange_inc(start: float, stop: float, step: float) -> np.ndarray:
-    """Inclusive numpy arange
+    """Inclusive numpy arange that includes endpoints
 
     Parameters
     ----------
