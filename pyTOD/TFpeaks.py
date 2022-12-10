@@ -14,10 +14,19 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
     """
     Computes the edge weight between two regions
 
-    :return: Edge weight
-    :param graph_rag: RAG graph
-    :param graph_edge: edge for which to compute weight
-    :param graph_data: spectrogram data
+    Parameters
+    ----------
+    graph_rag : skimage.future.graph.RAG
+        Region adjacency graph
+    graph_edge : tuple
+        Edge tuple
+    graph_data : np.ndarray
+        Graph data
+
+    Returns
+    -------
+    float
+        Edge weight
     """
     # Get border and region tuples
     i_border, i_region = list(graph_rag.nodes[graph_edge[0]].values())[1:]
@@ -68,12 +77,23 @@ def merge_weight(graph_rag: skimage.future.graph.RAG, src: int, dst: int, neighb
     Computes the edge weight between two regions in merge. (mirrors edge_weight)
     NOTE: Keeping as a distinct function saves some time rather than calling a wrapper to edge_weight
 
-    :return: edge weight
-    :param neighbor: neighbor node
-    :param graph_rag: RAG graph
-    :param src: source (unused)
-    :param dst: destination node (merged already)
-    :param graph_data: spectrogram data
+    Parameters
+    ----------
+    graph_rag : skimage.future.graph.RAG
+        The region adjacency graph
+    src : int
+        The source region
+    dst : int
+        The destination region
+    neighbor : int
+        The neighbor region
+    graph_data : np.ndarray
+        The data array for the graph
+
+    Returns
+    -------
+    dict
+        A dictionary containing the weight of the edge between the two regions
     """
 
     # Get border and region tuples
@@ -124,9 +144,18 @@ def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     """
     Merges the regions and borders for use in hierarchical merge
 
-    :param graph_rag: RAG graph
-    :param src: Source node
-    :param dst: Destination node
+    Parameters
+    ----------
+    graph_rag : skimage.future.graph.RAG
+        The region adjacency graph
+    src : int
+        The source region
+    dst : int
+        The destination region
+
+    Returns
+    -------
+    None
     """
     # Region is union of regions
     graph_rag.nodes[dst]["region"] = np.union1d(graph_rag.nodes[dst]["region"], graph_rag.nodes[src]["region"])
@@ -136,19 +165,26 @@ def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
 
 def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged: np.ndarray, graph_data: np.ndarray, region_num: int,
                 trim_volume: float):
-    """
-    Computes the edge weight between two regions
-    NOTE: Weights must be flipped to be negative to match ascending hierarchical merging
+    """Trims a region to a given volume percentage
 
-    :param labels_merged: labels of merged regions
-    :param trim_volume: Percentage to trim
-    :type: float
-    :param graph_rag: RAG
-    :type graph_rag: skimage.future.graph.rag.RAG
-    :param graph_data: Spectrogram data
-    :type graph_data: np.ndarray
-    :param region_num: Region number
-    :type region_num: int
+    Parameters
+    ----------
+    graph_rag : skimage.future.graph.RAG
+        The region adjacency graph
+    labels_merged : np.ndarray
+        The merged labels array
+    graph_data : np.ndarray
+        The data array used to compute the edge weights
+    region_num : int
+        The region number to trim
+    trim_volume : float
+        The volume to trim to, between 0 and 1
+
+    Returns
+    -------
+    np.ndarray
+        The trimmed region
+
     """
 
     # Get the region pixel values
@@ -182,10 +218,16 @@ def plot_node(graph_rag, node_num):
     """
     Plots a node for diagnostics
 
-    :param graph_rag: RAG graph
-    :param node_num: Node number
-    :type graph_rag: skimage.future.graph.rag.RAG
-    :type node_num: int
+    Parameters
+    ----------
+    graph_rag : RAG
+        The region adjacency graph
+    node_num : int
+        The node number to plot
+
+    Returns
+    -------
+    None
     """
     for i in graph_rag.nodes[node_num]["border"]:
         plt.plot(i[1], i[0], 'kx')
@@ -196,9 +238,19 @@ def plot_node(graph_rag, node_num):
 def process_segments_params(segment_dur: float, stimes: np.ndarray):
     """Gets parameters for segmenting the spectrogram
 
-    :param segment_dur: The duration of the segment in seconds
-    :param stimes: spectrogram times
-    :return: window_idx, start_times
+    Parameters
+    ----------
+    segment_dur : float
+        The duration of the segment in seconds
+    stimes : np.ndarray
+        spectrogram times
+
+    Returns
+    -------
+    window_idx : list
+        list of indexes for each window
+    start_times : np.ndarray
+        start times for each window
     """
     # create frequency vector
     d_stimes = stimes[1] - stimes[0]
@@ -220,22 +272,51 @@ def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
                    prom_min=-np.inf, plot_on=True, verbose=True) -> pd.DataFrame:
     """Detects TF-peaks within a spectrogram
 
-    :return: Table of peak statistics
-    :param segment_data: Spectrogram segment for peak detection
-    :param start_time: Start time of the segment
-    :param d_time: Time bin size
-    :param d_freq: Frequency bin size
-    :param merge_threshold: Threshold to stop merging
-    :param max_merges: Maximum number of merges to perform
-    :param trim_volume: % of total peak volume to keep
-    :param downsample: time x freq step to downsample
-    :param dur_min: min peak duration
-    :param dur_max: max peak duration
-    :param bw_min: min bandwidth
-    :param bw_max: max bandwidth
-    :param prom_min: min prominence
-    :param plot_on: Flag for plotting
-    :param verbose: Verbose setting
+    Parameters
+    ----------
+    segment_data : np.ndarray
+        The spectrogram data to segment.
+    start_time : int, optional
+        The start time of the spectrogram in seconds. The default is 0.
+    d_time : int, optional
+        The time resolution of the spectrogram in seconds. The default is 1.
+    d_freq : int, optional
+        The frequency resolution of the spectrogram in Hz. The default is 1.
+    merge_threshold : int, optional
+        The threshold for merging regions. The default is 8.
+    max_merges : int, optional
+        The maximum number of merges to perform. The default is np.inf.
+    trim_volume : float, optional
+        The volume threshold for trimming regions. The default is 0.8.
+    downsample : list, optional
+        A list of downsample factors for the spectrogram data. The default is None.
+    dur_min : int, optional
+        The minimum duration for a peak in seconds. The default is -np.inf.
+    dur_max : int, optional
+        The maximum duration for a peak in seconds. The default is np.inf.
+    bw_min : int, optional
+        The minimum bandwidth for a peak in Hz. The default is -np.inf.
+    bw_max : int, optional
+        The maximum bandwidth for a peak in Hz. The default is np.inf.
+    prom_min : int, optional
+        The minimum prominence for a peak in dB. The default is -np.inf.
+    plot_on : bool, optional
+        Whether to plot the segmentation results or not. The default is True.
+    verbose : bool, optional
+        Whether to print verbose output or not. The default is True.
+
+    Returns
+    -------
+    stats_table: pd.DataFrame
+        A table of stats for each peak detected in the spectrogram.
+
+        Columns:
+            label: the label of the peak in the spectrogram image
+            peak_time: the time of the peak in seconds
+            peak_frequency: the frequency of the peak in Hz
+            duration: the duration of the peak in seconds
+            bandwidth: the bandwidth of the peak in Hz
+            prominence: the prominence of the peak in dB
     """
 
     if verbose:

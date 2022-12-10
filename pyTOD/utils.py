@@ -292,8 +292,6 @@ def find_flat(data: list, minsize: int = 100) -> list:
 
     # Find trains of consecutive equal data
     for c in consecutive(data):
-        print(c)
-        print(c[2] - c[1] + 1)
         if c[2] - c[1] + 1 >= minsize:
             inds[c[1]:c[2] + 1] = True
 

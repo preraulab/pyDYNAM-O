@@ -15,10 +15,20 @@ from pyTOD.utils import convertHMS, detect_artifacts, min_prominence, summary_pl
 def run_example_data(data_range='segment', quality='fast', save_peaks=False, load_peaks=True):
     """Example data script
 
-    :param data_range: 'night' or 'segment'
-    :param quality: 'precision','fast',or 'draft'
-    :param save_peaks: saves peak data
-    :param load_peaks: runs from saved peak data
+    Parameters
+    ----------
+    data_range : str, optional
+        The range of data to use. Can be 'segment' or 'full'. Default: 'segment'
+    quality : str, optional
+        The quality of the TF-peak detection. Can be 'paper', 'precision', 'fast', or 'draft'. Default: 'fast'
+    save_peaks : bool, optional
+        Whether to save the TF-peak stats table to file. Default: False
+    load_peaks : bool, optional
+        Whether to load the TF-peak stats table from file. Default: True
+
+    Returns
+    -------
+    None
     """
     # Load in data
     print('Loading in raw data...', end=" ")
@@ -78,15 +88,29 @@ def compute_TFpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_t
                     max_merges=np.inf, trim_volume=0.8, verbose=True):
     """Extract TF-peaks from the data using the pyTOD packages
 
-    :param data: Time series data
-    :param fs: Sampling frequency
-    :param downsample: Downsampling amount
-    :param segment_dur: Segment duration for breaking up peak detection
-    :param merge_thresh: Peak merge threshold
-    :param max_merges: Number of maximum merges
-    :param trim_volume: Percent of peak to retain
-    :param verbose: Verbose flag
-    :return: Peak statistics table
+    Parameters
+    ----------
+    data : array_like
+        The data to be analyzed.
+    fs : float
+        The sampling frequency of the data.
+    downsample : array_like, optional
+        The downsampling factor for each dimension.
+    segment_dur : float, optional
+        The duration of each segment to be analyzed.
+    merge_thresh : float, optional
+        The threshold for merging peaks.
+    max_merges : int, optional
+        The maximum number of merges to perform.
+    trim_volume : float, optional
+        The fraction of the volume to trim from the peaks.
+    verbose : bool, optional
+        Whether to print progress messages.
+
+    Returns
+    -------
+    stats_table : pandas.DataFrame
+        A table containing the TF-peak statistics.
     """
     # Handle no downsampling
     if downsample is None:
@@ -169,12 +193,37 @@ def compute_TFpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_t
 def compute_SOPHs(data, fs, stages, stats_table, verbose=True):
     """Compute SO-power and SO-phase histograms for detected peaks
 
-    :param verbose: Verbose flag
-    :param data: Time series data
-    :param fs: Sampling frequency
-    :param stages: Time/Stage dataframe
-    :param stats_table: Peak statistics table
-    :return: SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins, phase_cbins
+    Parameters
+    ----------
+    data : numpy.ndarray
+        Time series data
+    fs : float
+        Sampling frequency
+    stages : pandas.DataFrame
+        Time/Stage dataframe
+    stats_table : pandas.DataFrame
+        Peak statistics table
+    verbose : bool, optional
+        Verbose flag, by default True
+
+    Returns
+    -------
+    SOpow_hist : numpy.ndarray
+        SO-power histogram
+    freq_cbins : numpy.ndarray
+        Frequency bins for SO-power histogram
+    SO_cbins : numpy.ndarray
+        SO-power bins for SO-power histogram
+    SO_power_norm : numpy.ndarray
+        Normalized SO-power for each peak
+    SO_power_times : numpy.ndarray
+        Time of each peak in SO-power histogram
+    SOphase_hist : numpy.ndarray
+        SO-phase histogram
+    freq_cbins : numpy.ndarray
+        Frequency bins for SO-phase histogram
+    phase_cbins : numpy.ndarray
+        Phase bins for SO-phase histogram
     """
     if verbose:
         print('Detecting artifacts...', end=" ")
@@ -234,15 +283,47 @@ def run_TFpeaks_SOPH(data, fs, stages, downsample=None, segment_dur=30, merge_th
                      max_merges=np.inf, trim_volume=0.8, plot_on=True):
     """Extracts TF-peaks then cmputes SO-power and Phase histograms using the pyTOD package
 
-    :param data: Time series data
-    :param fs: Sample frequency
-    :param stages: Stages data frame
-    :param downsample: Downsample amount for the watershed output
-    :param segment_dur: Segment duration
-    :param merge_thresh: Merge threshold
-    :param max_merges: Number of maximum merges
-    :param trim_volume: Percent of volume to retain
-    :param plot_on: Plotting flag
+    Parameters
+    ----------
+    data : ndarray
+        The data to be analyzed.
+    fs : int
+        The sampling frequency of the data.
+    stages : ndarray
+        The sleep stages of the data.
+    downsample : int, optional
+        The downsampling factor to be applied to the data. The default is None.
+    segment_dur : int, optional
+        The duration of each segment in seconds. The default is 30.
+    merge_thresh : int, optional
+        The minimum number of peaks that must be present in a segment for it to be considered a peak. The default is 8.
+    max_merges : int, optional
+        The maximum number of merges that can be performed on a segment. The default is np.inf.
+    trim_volume : float, optional
+        The fraction of the data to be trimmed from the beginning and end of each segment. The default is 0.8.
+    plot_on : bool, optional
+        Whether or not to plot the summary figure. The default is True.
+
+    Returns
+    -------
+    stats_table : ndarray
+        A table containing the statistics of each TF-peak segment.
+    SOpow_hist : ndarray
+        A histogram of the SO-power in each TF-peak segment.
+    freq_cbins : ndarray
+        The frequency bins used to compute the SO-power histogram.
+    SO_cbins : ndarray
+        The SO-power bins used to compute the SO-power histogram.
+    SO_power_norm : ndarray
+        The normalized SO-power in each TF-peak segment.
+    SO_power_times : ndarray
+        The time points corresponding to each SO-power value in each TF-peak segment.
+    SOphase_hist : ndarray
+        A histogram of the SO-phase in each TF-peak segment.
+    freq_cbins : ndarray
+        The frequency bins used to compute the SO-phase histogram.
+    phase_cbins : ndarray
+        The SO-phase bins used to compute the SO-phase histogram.
     """
 
     # Extract TF-peaks and compute peak statistics table
@@ -263,9 +344,9 @@ def run_TFpeaks_SOPH(data, fs, stages, downsample=None, segment_dur=30, merge_th
 
 if __name__ == '__main__':
     quality = 'fast'  # Quality setting 'precision','fast', or 'draft'
-    data_range = 'segment'  # Segment vs. night
-    save_peaks = True  # Save csv of peaks if computing
-    load_peaks = False  # Load from csv vs computing
+    data_range = 'night'  # Segment vs. night
+    save_peaks = False  # Save csv of peaks if computing
+    load_peaks = True  # Load from csv vs computing
 
     # Run example data
     run_example_data(data_range, quality, save_peaks, load_peaks)
