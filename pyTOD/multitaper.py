@@ -355,6 +355,7 @@ def display_spectrogram_props(fs, time_bandwidth, num_tapers, data_window_params
             detrend_opt (str): detrend data window ('linear' (default), 'constant', 'off')
         Returns:
             This function does not return anything
+            :param nfft:
     """
 
     data_window_params = np.asarray(data_window_params) / fs

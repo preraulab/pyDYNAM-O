@@ -12,24 +12,36 @@ from pyTOD.utils import butter_bandpass, pow2db, create_bins
 def wrap_phase(phase: np.ndarray) -> np.ndarray:
     """Wrap phase from -pi to pi
 
-    :param phase: Unwrapped phase
-    :return: Wrapped phase
+    Parameters
+    ----------
+    phase : np.ndarray
+        Unwrapped phase
+
+    Returns
+    -------
+    np.ndarray
+        Wrapped phase
     """
     return np.angle(np.exp(1j * phase))
 
 
-def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=50):
+def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=10):
     """Computes unwrapped slow oscillation phase
     Note: Phase is unwrapped because wrapping does not return to original angle given the unwrapping algorithm
 
-    :param data: EEG time series data
-    :param fs: Sampling frequency
-    :param lowcut: Bandpass low-end cutoff
-    :param highcut: Bandpass high-end cutoff
-    :param order: Filter order
-    :return: Unwrapped phase
+    Parameters
+    ----------
+    data : EEG time series data
+    fs : Sampling frequency
+    lowcut : Bandpass low-end cutoff
+    highcut : Bandpass high-end cutoff
+    order : Filter order
+
+    Returns
+    -------
+    phase : Unwrapped phase
     """
-    sos = butter_bandpass(lowcut, highcut, fs, 10)
+    sos = butter_bandpass(lowcut, highcut, fs, order)
     data_filt = sosfiltfilt(sos, data)
 
     analytic_signal = hilbert(data_filt)
@@ -40,11 +52,17 @@ def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=50):
 def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
     """Computes slow oscillation power
 
-    :param data: EEG time series data
-    :param fs: Sampling frequency
-    :param lowcut: Bandpass low-end cutoff
-    :param highcut: Bandpass high-end cutoff
-    :return: SO_power, SOpow_times
+    :Parameters
+    ----------
+    data : EEG time series data
+    fs : Sampling frequency
+    lowcut : Bandpass low-end cutoff
+    highcut : Bandpass high-end cutoff
+
+    Returns
+    -------
+    SO_power : Slow oscillation power
+    SOpow_times : Time vector for SO_power
     """
     frequency_range = [lowcut, highcut]
 
@@ -77,19 +95,45 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
                        SO_range=None, SO_window=None, norm_method='percent', min_time_in_bin=1, verbose=True):
     """Compute a slow oscillation power histogram
 
-    :param peak_times: Peak times
-    :param peak_freqs: Peak frequencies
-    :param data: Time series data
-    :param fs: Sampling frequency
-    :param artifacts: Artifacts list
-    :param freq_range: Frequency range
-    :param freq_window: Frequency window width and step size
-    :param SO_range: SO-power range
-    :param SO_window: SO-power window width and step size
-    :param norm_method: Normalization method ('shift', 'percent', or 'none')
-    :param min_time_in_bin: Minimum time in bin to count towards histogram
-    :param verbose: Verbose flag
-    :return: SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SOpow_times
+     Parameters
+    ----------
+    peak_times : array_like
+        Times of peaks in seconds.
+    peak_freqs : array_like
+        Frequencies of peaks in Hz.
+    data : array_like
+        Data to compute SO power from.
+    fs : int
+        Sampling frequency of data.
+    artifacts : array_like
+        Indices of artifacts in data.
+    freq_range : array_like, optional
+        Frequency range to compute histogram over. The default is None.
+    freq_window : array_like, optional
+        Frequency window size and step size. The default is None.
+    SO_range : array_like, optional
+        SO power range to compute histogram over. The default is None.
+    SO_window : array_like, optional
+        SO power window size and step size. The default is None.
+    norm_method : str, optional
+        Normalization method for SO power ('percent','shift', and 'none'). The default is 'percent'.
+    min_time_in_bin : int, optional
+        Minimum time required in each SO power bin. The default is 1.
+    verbose : bool, optional
+        Print settings to console. The default is True.
+
+    Returns
+    -------
+    SOpow_hist : array_like
+        SO power histogram.
+    freq_cbins : array_like
+        Center frequencies of frequency bins.
+    SO_cbins : array_like
+        Center SO powers of SO power bins.
+    SO_power_norm : array_like
+        Normalized SO power.
+    SOpow_times : array_like
+        Times of SO power samples.
     """
     good_data = copy.deepcopy(data)
     good_data[artifacts] = np.nan
@@ -186,17 +230,37 @@ def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
                        phase_range=None, phase_window=None, min_time_in_bin=1, verbose=True):
     """Compute a slow oscillation phase histogram
 
-    :param peak_times: Peak times
-    :param peak_freqs: Peak frequencies
-    :param data: Time series data
-    :param fs: Sampling frequency
-    :param freq_range: Frequency range
-    :param freq_window: Frequency window width and step size
-    :param phase_range: SO-power range
-    :param phase_window: SO-power window width and step size
-    :param min_time_in_bin: Minimum time in bin to count towards histogram
-    :param verbose: Verbose flag
-    :return: SOphase_hist, freq_cbins, phase_cbins
+    Parameters
+    ----------
+    peak_times : numpy.ndarray
+        Times of detected peaks in the recording.
+    peak_freqs : numpy.ndarray
+        Frequencies of detected peaks in the recording.
+    data : numpy.ndarray
+        The recording.
+    fs : int
+        Sampling rate of the recording.
+    freq_range : list, optional
+        The range of frequencies to include in the histogram. Defaults to [np.min(peak_freqs), np.max(peak_freqs)].
+    freq_window : list, optional
+        The size and step of the frequency bins. Defaults to [(freq_range[1] - freq_range[0]) / 5, (freq_range[1] - freq_range[0]) / 100].
+    phase_range : list, optional
+        The range of SO-phases to include in the histogram. Defaults to [-np.pi, np.pi].
+    phase_window : list, optional
+        The size and step of the SO-phase bins. Defaults to [(2 * np.pi) / 5, (2 * np.pi) / 100].
+    min_time_in_bin : int, optional
+        The minimum amount of time required in each SO-phase bin for it to be included in the histogram. Defaults to 1 minute.
+    verbose : bool, optional
+        Verbose setting. Defaults to True.
+
+    Returns
+    -------
+    SOphase_hist : numpy.ndarray
+        The SO-phase histogram.
+    freq_cbins : numpy.ndarray
+        The center frequencies of the frequency bins.
+    phase_cbins : numpy.ndarray
+        The center SO-phases of the SO-phase bins.
     """
     SO_phase = wrap_phase(get_SO_phase(data, fs, lowcut=0.3, highcut=1.5))
 

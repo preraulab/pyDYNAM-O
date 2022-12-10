@@ -261,7 +261,7 @@ def consecutive(data):
 
     Examples
     --------
-    >> consecutive([1, 1, 1, 2, 2, 3, 3, 3, 3])
+    >>> consecutive([1, 1, 1, 2, 2, 3, 3, 3, 3])
     [(1, 0, 2), (2, 3, 4), (3, 5, 8)]
     """
     vals = [v[0] for v in groupby(data)]
