@@ -16,7 +16,7 @@ from pyTOD.multitaper import multitaper_spectrogram
 
 def nan_zscore(data):
     """
-    Compute modified z-score for a numpy array.
+    Compute modified z-score for a numpy array that ignores nans.
 
     Parameters
     ----------
@@ -27,6 +27,11 @@ def nan_zscore(data):
     -------
     numpy array
         The normalized data.
+
+    Notes
+    -------
+    .. math::
+        z = (data - nanmean(data)) / nanstd(data)
     """
     # Compute modified z-score
     mid = np.nanmean(data)
