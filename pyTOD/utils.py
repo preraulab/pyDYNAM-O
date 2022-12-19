@@ -1,16 +1,16 @@
+import numpy as np
 from itertools import groupby
+from joblib import cpu_count
+from scipy.signal import convolve, butter, hilbert, sosfiltfilt
+from scipy.stats import chi2
 
 import matplotlib
-import numpy
-import numpy as np
-from joblib import cpu_count
 from matplotlib import gridspec
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
-from scipy.signal import convolve, butter, hilbert, sosfiltfilt
-from scipy.stats import chi2
 import matplotlib.pyplot as plt
-import colorcet
+import colorcet  # this import is necessary to add rainbow colormap to matplotlib
+
 from pyTOD.multitaper import multitaper_spectrogram
 
 
