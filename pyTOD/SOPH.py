@@ -25,7 +25,7 @@ def wrap_phase(phase: np.ndarray) -> np.ndarray:
     return np.angle(np.exp(1j * phase))
 
 
-def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=10):
+def get_so_phase(data, fs, lowcut=0.3, highcut=1.5, order=10):
     """Computes unwrapped slow oscillation phase
     Note: Phase is unwrapped because wrapping does not return to original angle given the unwrapping algorithm
 
@@ -49,7 +49,7 @@ def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=10):
     return phase
 
 
-def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
+def get_so_power(data, fs, lowcut=0.3, highcut=1.5):
     """Computes slow oscillation power
 
     Parameters
@@ -91,7 +91,7 @@ def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
     return SO_power, SO_power_times
 
 
-def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=None, freq_window=None,
+def so_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=None, freq_window=None,
                        SO_range=None, SO_window=None, norm_method='percent', min_time_in_bin=1, verbose=True):
     """Compute a slow oscillation power histogram
 
@@ -139,7 +139,7 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
     """
     good_data = copy.deepcopy(data)
     good_data[artifacts] = np.nan
-    SO_power, SO_power_times = get_SO_power(good_data, fs, lowcut=0.3, highcut=1.5)
+    SO_power, SO_power_times = get_so_power(good_data, fs, lowcut=0.3, highcut=1.5)
     inds = ~np.isnan(SO_power)
 
     # Normalize  power
@@ -233,7 +233,7 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
     return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label
 
 
-def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_window=None,
+def so_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_window=None,
                        phase_range=None, phase_window=None, min_time_in_bin=1, verbose=True):
     """Compute a slow oscillation phase histogram
 
@@ -271,7 +271,7 @@ def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
     phase_cbins : numpy.ndarray
         The center SO-phases of the SO-phase bins.
     """
-    SO_phase = wrap_phase(get_SO_phase(data, fs, lowcut=0.3, highcut=1.5))
+    SO_phase = wrap_phase(get_so_phase(data, fs, lowcut=0.3, highcut=1.5))
 
     # Set defaults
     if freq_range is None:

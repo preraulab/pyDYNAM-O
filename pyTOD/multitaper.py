@@ -8,6 +8,7 @@ import warnings
 import timeit
 from joblib import Parallel, delayed, cpu_count
 # Visualization imports
+# noinspection PyUnresolvedReferences
 import colorcet  # this import is necessary to add rainbow colormap to matplotlib
 import matplotlib.pyplot as plt
 

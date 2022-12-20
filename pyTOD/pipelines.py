@@ -7,13 +7,13 @@ from joblib import cpu_count, Parallel, delayed
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
-from pyTOD.SOPH import wrap_phase, get_SO_phase, SO_power_histogram, SO_phase_histogram
+from pyTOD.SOPH import wrap_phase, get_so_phase, so_power_histogram, so_phase_histogram
 from pyTOD.TFpeaks import process_segments_params, detect_TFpeaks
 from pyTOD.multitaper import multitaper_spectrogram
-from pyTOD.utils import convertHMS, detect_artifacts, min_prominence, summary_plot
+from pyTOD.utils import convert_hms, detect_artifacts, min_prominence, summary_plot
 
 
-def compute_TFpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_thresh=8,
+def compute_tfpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_thresh=8,
                     max_merges=np.inf, trim_volume=0.8, verbose=True):
     """Extract TF-peaks from the data using the pyTOD packages
 
@@ -110,7 +110,7 @@ def compute_TFpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_t
     if verbose:
         toc_outer = timeit.default_timer()
         # noinspection PyUnboundLocalVariable
-        print('Took ' + convertHMS(toc_outer - tic_outer))
+        print('Took ' + convert_hms(toc_outer - tic_outer))
 
     # Fix the stats_table to sort by time and reset labels
     del stats_table['label']
@@ -120,7 +120,7 @@ def compute_TFpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_t
     return stats_table
 
 
-def compute_SOPHs(data, fs, stages, stats_table, norm_method='percent', verbose=True):
+def compute_sophs(data, fs, stages, stats_table, norm_method='percent', verbose=True):
     """Compute SO-power and SO-phase histograms for detected peaks
 
     Parameters
@@ -167,11 +167,11 @@ def compute_SOPHs(data, fs, stages, stats_table, norm_method='percent', verbose=
 
     if verbose:
         # noinspection PyUnboundLocalVariable
-        print('Took ' + convertHMS(timeit.default_timer() - tic_art))
+        print('Took ' + convert_hms(timeit.default_timer() - tic_art))
 
     # Compute peak phase
     t = np.arange(len(data)) / fs
-    phase = get_SO_phase(data, fs)
+    phase = get_so_phase(data, fs)
 
     # Compute peak phase for plotting
     peak_interp = interp1d(t, phase)
@@ -199,28 +199,28 @@ def compute_SOPHs(data, fs, stages, stats_table, norm_method='percent', verbose=
         tic_SOpow = timeit.default_timer()
 
     SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label = \
-        SO_power_histogram(stats_table.peak_time, stats_table.peak_frequency,
+        so_power_histogram(stats_table.peak_time, stats_table.peak_frequency,
                            data, fs, artifacts, freq_range=[4, 25], freq_window=[1, 0.2],
                            norm_method=norm_method, verbose=False)
     if verbose:
         # noinspection PyUnboundLocalVariable
-        print('Took ' + convertHMS(timeit.default_timer() - tic_SOpow))
+        print('Took ' + convert_hms(timeit.default_timer() - tic_SOpow))
 
         print('Computing SO-Phase Histogram...', end=" ")
         tic_SOhase = timeit.default_timer()
 
     SOphase_hist, freq_cbins, phase_cbins = \
-        SO_phase_histogram(stats_table.peak_time, stats_table.peak_frequency,
+        so_phase_histogram(stats_table.peak_time, stats_table.peak_frequency,
                            data, fs, freq_range=[4, 25], freq_window=[1, 0.2], verbose=False)
     if verbose:
         # noinspection PyUnboundLocalVariable
-        print('Took ' + convertHMS(timeit.default_timer() - tic_SOhase))
+        print('Took ' + convert_hms(timeit.default_timer() - tic_SOhase))
 
     return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label, \
         SOphase_hist, freq_cbins, phase_cbins
 
 
-def run_TFpeaks_SOPH(data, fs, stages, downsample=None, segment_dur=30, merge_thresh=8,
+def run_tfpeaks_soph(data, fs, stages, downsample=None, segment_dur=30, merge_thresh=8,
                      max_merges=np.inf, trim_volume=0.8, norm_method='percent', plot_on=True):
     """Extracts TF-peaks then computes SO-power and Phase histograms using the pyTOD package
 
@@ -270,11 +270,11 @@ def run_TFpeaks_SOPH(data, fs, stages, downsample=None, segment_dur=30, merge_th
     """
 
     # Extract TF-peaks and compute peak statistics table
-    stats_table = compute_TFpeaks(data, fs, downsample, segment_dur, merge_thresh, max_merges, trim_volume)
+    stats_table = compute_tfpeaks(data, fs, downsample, segment_dur, merge_thresh, max_merges, trim_volume)
 
     # Compute SO-power and SO-phase Histograms
     SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label, \
-        SOphase_hist, freq_cbins, phase_cbins = compute_SOPHs(data, fs, stages, stats_table, norm_method=norm_method)
+        SOphase_hist, freq_cbins, phase_cbins = compute_sophs(data, fs, stages, stats_table, norm_method=norm_method)
 
     # Create summary plot if selected
     if plot_on:

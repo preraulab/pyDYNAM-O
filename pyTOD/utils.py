@@ -109,7 +109,7 @@ def min_prominence(num_tapers: int, alpha: float = 0.95) -> float:
     return -pow2db(chi2_df / chi2.ppf(alpha / 2 + 0.5, chi2_df)) * 2
 
 
-def convertHMS(seconds: float) -> str:
+def convert_hms(seconds: float) -> str:
     """Convert seconds to hours, minutes, and seconds.
 
     Parameters
@@ -124,7 +124,7 @@ def convertHMS(seconds: float) -> str:
 
     Examples
     --------
-    >> convertHMS(3661)
+    >> convert_hms(3661)
     '01:01:01'
     """
     seconds = seconds % (24 * 3600)

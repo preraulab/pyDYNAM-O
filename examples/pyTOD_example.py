@@ -2,7 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 from pyTOD.utils import summary_plot
-from pyTOD.pipelines import compute_SOPHs, run_TFpeaks_SOPH
+from pyTOD.pipelines import compute_sophs, run_tfpeaks_soph
 
 
 def run_example_data(data_range='segment', quality='fast', save_peaks=False, load_peaks=True):
@@ -73,7 +73,7 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
 
         stats_table, \
             SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, \
-            SOphase_hist, freq_cbins, phase_cbins = run_TFpeaks_SOPH(data, fs, stages, downsample, segment_dur,
+            SOphase_hist, freq_cbins, phase_cbins = run_tfpeaks_soph(data, fs, stages, downsample, segment_dur,
                                                                      merge_thresh, max_merges, trim_volume,
                                                                      norm_method='p5shift', plot_on=True)
 
@@ -86,7 +86,7 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
         stats_table = pd.read_csv(example_data_dir + '/' + data_range + '_peaks.csv')
 
         SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label, \
-            SOphase_hist, freq_cbins, phase_cbins = compute_SOPHs(data, fs, stages, stats_table, norm_method='p5shift')
+            SOphase_hist, freq_cbins, phase_cbins = compute_sophs(data, fs, stages, stats_table, norm_method='p5shift')
 
         summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SO_power_label,
                      SOphase_hist, freq_cbins)
