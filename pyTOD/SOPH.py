@@ -238,7 +238,7 @@ def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
         Frequencies of detected peaks in the recording.
     data : numpy.ndarray
         The recording.
-    fs : int
+    fs : int, float
         Sampling rate of the recording.
     freq_range : list, optional
         The range of frequencies to include in the histogram. Defaults to [np.min(peak_freqs), np.max(peak_freqs)].

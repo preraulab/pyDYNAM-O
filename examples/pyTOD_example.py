@@ -1,5 +1,6 @@
 import timeit
 
+import os
 import numpy as np
 import pandas as pd
 from joblib import cpu_count, Parallel, delayed
@@ -18,7 +19,7 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
     Parameters
     ----------
     data_range : str, optional
-        The range of data to use. Can be 'segment' or 'full'. Default: 'segment'
+        The range of data to use. Can be 'segment' or 'night'. Default: 'segment'
     quality : str, optional
         The quality of the TF-peak detection. Can be 'paper', 'precision', 'fast', or 'draft'. Default: 'fast'
     save_peaks : bool, optional
@@ -32,17 +33,30 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
     """
     # Load in data
     print('Loading in raw data...', end=" ")
+
+    # Configure example_data path
+    try:
+        dir_path = os.path.dirname(os.path.realpath(__file__))
+        if dir_path.find('examples') > 0:
+            example_data_dir = os.path.join(dir_path, '_example_data')
+        else:
+            example_data_dir = os.path.join(dir_path, 'examples/_example_data')
+    except NameError:  # __file__ isn't available for iPython console sessions
+        dir_path = os.getcwd()
+        example_data_dir = os.path.join(dir_path[:dir_path.find('pyTOD') + 5],
+                                        'examples/_example_data')  # assumes the top level repo name is pyTOD
+
     # EEG data and stages
-    csv_data = pd.read_csv('data/' + data_range + '_data.csv', header=None)
+    csv_data = pd.read_csv(example_data_dir + '/' + data_range + '_data.csv', header=None)
     data = np.array(csv_data[0]).astype(np.float32)
-    stages = pd.read_csv('data/' + data_range + '_stages.csv')
+    stages = pd.read_csv(example_data_dir + '/' + data_range + '_stages.csv')
     print('Done')
 
     # Sampling Frequency
     fs = 100
 
     if not load_peaks:
-        # %% DETECT TF-PEAKS
+        # DETECT TF-PEAKS
         if quality == 'paper':
             downsample = []
             segment_dur = 60
@@ -66,19 +80,19 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
         max_merges = np.inf  # Set limit on number merges if needs be
 
         stats_table, \
-        SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, \
-        SOphase_hist, freq_cbins, phase_cbins = run_TFpeaks_SOPH(data, fs, stages, downsample, segment_dur,
-                                                                 merge_thresh, max_merges, trim_volume, True)
+            SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, \
+            SOphase_hist, freq_cbins, phase_cbins = run_TFpeaks_SOPH(data, fs, stages, downsample, segment_dur,
+                                                                     merge_thresh, max_merges, trim_volume, True)
 
         if save_peaks:
             print('Writing stats_table to file...', end=" ")
-            stats_table.to_csv('data/' + data_range + '_peaks.csv')
+            stats_table.to_csv(example_data_dir + '/' + data_range + '_peaks.csv')
             print('Done')
     else:
-        stats_table = pd.read_csv('data/' + data_range + '_peaks.csv')
+        stats_table = pd.read_csv(example_data_dir + '/' + data_range + '_peaks.csv')
 
         SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, \
-        SOphase_hist, freq_cbins, phase_cbins = compute_SOPHs(data, fs, stages, stats_table)
+            SOphase_hist, freq_cbins, phase_cbins = compute_SOPHs(data, fs, stages, stats_table)
 
         summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist,
                      freq_cbins)
@@ -116,7 +130,7 @@ def compute_TFpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_t
     if downsample is None:
         downsample = []
 
-    # %% Compute the multitaper spectrogram (MTS)
+    # Compute the multitaper spectrogram (MTS)
     frequency_range = [0, 30]  # MTS frequency range
     taper_params = [2, 3]  # Set taper params
     time_bandwidth = taper_params[0]  # Set time-half bandwidth
@@ -180,6 +194,7 @@ def compute_TFpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_t
 
     if verbose:
         toc_outer = timeit.default_timer()
+        # noinspection PyUnboundLocalVariable
         print('Took ' + convertHMS(toc_outer - tic_outer))
 
     # Fix the stats_table to sort by time and reset labels
@@ -230,6 +245,7 @@ def compute_SOPHs(data, fs, stages, stats_table, verbose=True):
         tic_art = timeit.default_timer()
     artifacts = detect_artifacts(data, fs)
     if verbose:
+        # noinspection PyUnboundLocalVariable
         print('Took ' + convertHMS(timeit.default_timer() - tic_art))
 
     # Compute peak phase
@@ -266,6 +282,7 @@ def compute_SOPHs(data, fs, stages, stats_table, verbose=True):
                            data, fs, artifacts, freq_range=[4, 25], freq_window=[1, 0.2],
                            norm_method='shift', verbose=False)
     if verbose:
+        # noinspection PyUnboundLocalVariable
         print('Took ' + convertHMS(timeit.default_timer() - tic_SOpow))
 
         print('Computing SO-Phase Histogram...', end=" ")
@@ -274,6 +291,7 @@ def compute_SOPHs(data, fs, stages, stats_table, verbose=True):
         SO_phase_histogram(stats_table.peak_time, stats_table.peak_frequency,
                            data, fs, freq_range=[4, 25], freq_window=[1, 0.2], verbose=False)
     if verbose:
+        # noinspection PyUnboundLocalVariable
         print('Took ' + convertHMS(timeit.default_timer() - tic_SOhase))
 
     return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins, phase_cbins
@@ -281,7 +299,7 @@ def compute_SOPHs(data, fs, stages, stats_table, verbose=True):
 
 def run_TFpeaks_SOPH(data, fs, stages, downsample=None, segment_dur=30, merge_thresh=8,
                      max_merges=np.inf, trim_volume=0.8, plot_on=True):
-    """Extracts TF-peaks then cmputes SO-power and Phase histograms using the pyTOD package
+    """Extracts TF-peaks then computes SO-power and Phase histograms using the pyTOD package
 
     Parameters
     ----------
@@ -289,9 +307,9 @@ def run_TFpeaks_SOPH(data, fs, stages, downsample=None, segment_dur=30, merge_th
         The data to be analyzed.
     fs : int
         The sampling frequency of the data.
-    stages : ndarray
+    stages : pandas.DataFrame
         The sleep stages of the data.
-    downsample : int, optional
+    downsample : list, optional
         The downsampling factor to be applied to the data. The default is None.
     segment_dur : int, optional
         The duration of each segment in seconds. The default is 30.
@@ -302,11 +320,11 @@ def run_TFpeaks_SOPH(data, fs, stages, downsample=None, segment_dur=30, merge_th
     trim_volume : float, optional
         The fraction of the data to be trimmed from the beginning and end of each segment. The default is 0.8.
     plot_on : bool, optional
-        Whether or not to plot the summary figure. The default is True.
+        Whether to plot the summary figure. The default is True.
 
     Returns
     -------
-    stats_table : ndarray
+    stats_table : pandas.DataFrame
         A table containing the statistics of each TF-peak segment.
     SOpow_hist : ndarray
         A histogram of the SO-power in each TF-peak segment.
@@ -331,7 +349,7 @@ def run_TFpeaks_SOPH(data, fs, stages, downsample=None, segment_dur=30, merge_th
 
     # Compute SO-power and SO-phase Histograms
     SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, \
-    SOphase_hist, freq_cbins, phase_cbins = compute_SOPHs(data, fs, stages, stats_table)
+        SOphase_hist, freq_cbins, phase_cbins = compute_SOPHs(data, fs, stages, stats_table)
 
     # Create summary plot if selected
     if plot_on:
@@ -339,14 +357,14 @@ def run_TFpeaks_SOPH(data, fs, stages, downsample=None, segment_dur=30, merge_th
                      freq_cbins)
 
     return stats_table, SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins, \
-           phase_cbins
+        phase_cbins
 
 
 if __name__ == '__main__':
     quality = 'fast'  # Quality setting 'precision','fast', or 'draft'
-    data_range = 'night'  # Segment vs. night
+    data_range = 'night'  # 'segment' vs. 'night'
     save_peaks = False  # Save csv of peaks if computing
-    load_peaks = True  # Load from csv vs computing
+    load_peaks = False  # Load from csv vs computing
 
     # Run example data
     run_example_data(data_range, quality, save_peaks, load_peaks)

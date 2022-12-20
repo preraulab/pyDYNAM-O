@@ -1,7 +1,5 @@
 import timeit
 
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
 import skimage.future.graph
 from skimage import measure, segmentation, future, color, morphology
@@ -259,12 +257,12 @@ def process_segments_params(segment_dur: float, stimes: np.ndarray):
     window_start = np.arange(0, len(stimes) - 1, win_samples)
 
     # Get indexes for each window
-    window_idx = [np.arange(window_start[i], np.min([window_start[i] + win_samples, len(stimes)]), 1).astype(int)
-                  for i in np.arange(0, len(window_start), 1)]
+    window_idxs = [np.arange(window_start[i], np.min([window_start[i] + win_samples, len(stimes)]), 1).astype(int)
+                   for i in np.arange(0, len(window_start), 1)]
 
     start_times = stimes[window_start.astype(int)]
 
-    return window_idx, start_times
+    return window_idxs, start_times
 
 
 def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_threshold=8, max_merges=np.inf,

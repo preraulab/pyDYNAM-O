@@ -9,7 +9,6 @@ from matplotlib import gridspec
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
-import colorcet  # this import is necessary to add rainbow colormap to matplotlib
 
 from pyTOD.multitaper import multitaper_spectrogram
 
@@ -62,11 +61,11 @@ def pow2db(y):
 
     Examples
     --------
-    >>> pow2db(1)
+    >> pow2db(1)
     0.0
-    >>> pow2db(0)
+    >> pow2db(0)
     nan
-    >>> pow2db([1, numpy.nan, 1])
+    >> pow2db([1, np.nan, 1])
     array([  0.,  nan,   0.])
     """
 
@@ -125,7 +124,7 @@ def convertHMS(seconds: float) -> str:
 
     Examples
     --------
-    >>> convertHMS(3661)
+    >> convertHMS(3661)
     '01:01:01'
     """
     seconds = seconds % (24 * 3600)
@@ -266,11 +265,11 @@ def consecutive(data):
 
     Examples
     --------
-    >>> consecutive([1, 1, 1, 2, 2, 3, 3, 3, 3])
+    >> consecutive([1, 1, 1, 2, 2, 3, 3, 3, 3])
     [(1, 0, 2), (2, 3, 4), (3, 5, 8)]
     """
     vals = [v[0] for v in groupby(data)]
-    cons = [sum(1 for i in g) for v, g in groupby(data)]
+    cons = [sum(1 for _ in g) for v, g in groupby(data)]
 
     start_inds = np.cumsum(np.insert(cons, 0, 0))
     end_inds = np.add(start_inds[0:-1], cons) - 1
@@ -278,12 +277,12 @@ def consecutive(data):
     return list(zip(vals, start_inds, end_inds))
 
 
-def find_flat(data: list, minsize: int = 100) -> list:
+def find_flat(data, minsize: int = 100) -> np.ndarray:
     """Finds the indices of flat regions in a 1D array.
 
     Parameters
     ----------
-    data : list
+    data : numpy array
         The data to search for flat regions.
     minsize : int, optional
         The minimum size of a flat region to be considered.
@@ -380,8 +379,6 @@ def butter_highpass(lowcut, fs, order=50):
     ----------
     lowcut : float
         Low cutoff frequency in Hz.
-    highcut : float
-        High cutoff frequency in Hz.
     fs : float
         Sample rate in Hz.
     order : int, optional
