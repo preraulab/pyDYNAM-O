@@ -52,7 +52,7 @@ def get_SO_phase(data, fs, lowcut=0.3, highcut=1.5, order=10):
 def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
     """Computes slow oscillation power
 
-    :Parameters
+    Parameters
     ----------
     data : EEG time series data
     fs : Sampling frequency
@@ -62,7 +62,7 @@ def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
     Returns
     -------
     SO_power : Slow oscillation power
-    SOpow_times : Time vector for SO_power
+    SO_power_times : Time vector for SO_power
     """
     frequency_range = [lowcut, highcut]
 
@@ -81,21 +81,21 @@ def get_SO_power(data, fs, lowcut=0.3, highcut=1.5):
     xyflip = False  # do not transpose spect output matrix
 
     # Compute the multitaper spectrogram
-    spect, SOpow_times, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
-                                                        window_params,
-                                                        min_nfft, detrend_opt, multiprocess, cpus,
-                                                        weighting, plot_on, clim_scale, verbose, xyflip)
+    spect, SO_power_times, sfreqs = multitaper_spectrogram(data, fs, frequency_range, time_bandwidth, num_tapers,
+                                                           window_params,
+                                                           min_nfft, detrend_opt, multiprocess, cpus,
+                                                           weighting, plot_on, clim_scale, verbose, xyflip)
 
     df = sfreqs[1] - sfreqs[0]
     SO_power = pow2db(np.sum(spect, axis=0) * df)
-    return SO_power, SOpow_times
+    return SO_power, SO_power_times
 
 
 def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=None, freq_window=None,
                        SO_range=None, SO_window=None, norm_method='percent', min_time_in_bin=1, verbose=True):
     """Compute a slow oscillation power histogram
 
-     Parameters
+    Parameters
     ----------
     peak_times : array_like
         Times of peaks in seconds.
@@ -115,7 +115,7 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
         SO power range to compute histogram over. The default is None.
     SO_window : array_like, optional
         SO power window size and step size. The default is None.
-    norm_method : str, optional
+    norm_method : str, float, optional
         Normalization method for SO power ('percent','shift', and 'none'). The default is 'percent'.
     min_time_in_bin : int, optional
         Minimum time required in each SO power bin. The default is 1.
@@ -132,12 +132,14 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
         Center SO powers of SO power bins.
     SO_power_norm : array_like
         Normalized SO power.
-    SOpow_times : array_like
+    SO_power_times : array_like
         Times of SO power samples.
+    SO_power_label : string
+        Label of the SO-power axis
     """
     good_data = copy.deepcopy(data)
     good_data[artifacts] = np.nan
-    SO_power, SOpow_times = get_SO_power(good_data, fs, lowcut=0.3, highcut=1.5)
+    SO_power, SO_power_times = get_SO_power(good_data, fs, lowcut=0.3, highcut=1.5)
     inds = ~np.isnan(SO_power)
 
     # Normalize  power
@@ -145,19 +147,24 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
         shift_ptile = norm_method
         norm_method = 'shift'
     else:
-        shift_ptile = 5
+        shift_ptile = 5  # default shift is the 5th percentile
 
     if norm_method == 'percentile' or norm_method == 'percent':
         low_val = 1
         high_val = 99
         ptile = np.percentile(SO_power[inds], [low_val, high_val])
         SO_power_norm = SO_power - ptile[0]
-        SO_power_norm = np.divide(SO_power_norm, (ptile[1] - ptile[0])) * 100
-    elif norm_method == 'shift' or norm_method == 'p5shift':
+        # SO_power_norm = np.divide(SO_power_norm, (ptile[1] - ptile[0])) * 100
+        SO_power_norm = SO_power_norm / (ptile[1] - ptile[0]) * 100
+        SO_power_label = '% SO-Power'
+    elif norm_method == 'p5shift' or norm_method == 'shift':
         ptile = np.percentile(SO_power[inds], [shift_ptile])
-        SO_power_norm = np.subtract(SO_power, ptile)
+        # SO_power_norm = np.subtract(SO_power, ptile)
+        SO_power_norm = SO_power - ptile
+        SO_power_label = 'SO-Power (dB)'
     elif norm_method == 'absolute' or norm_method == 'none':
         SO_power_norm = SO_power
+        SO_power_label = 'SO-Power (dB)'
     else:
         raise ValueError("Not a valid normalization option, choose 'p5shift', 'percent', or 'none'")
 
@@ -195,11 +202,11 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
     time_in_bin = np.zeros((num_SObins, 1))
 
     # Compute peak phase
-    pow_interp = interp1d(SOpow_times[inds], SO_power_norm[inds], fill_value="extrapolate")
+    pow_interp = interp1d(SO_power_times[inds], SO_power_norm[inds], fill_value="extrapolate")
     peak_SOpow = pow_interp(peak_times)
 
     # SO-power time step size
-    d_stimes = SOpow_times[1] - SOpow_times[0]
+    d_stimes = SO_power_times[1] - SO_power_times[0]
 
     for s_bin in range(num_SObins):
         TIB_inds = np.logical_and(SO_power_norm >= SO_bin_edges[0, s_bin], SO_power_norm < SO_bin_edges[1, s_bin])
@@ -223,7 +230,7 @@ def SO_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
         else:
             SOpow_hist[:, s_bin] = np.nan
 
-    return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SOpow_times
+    return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label
 
 
 def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_window=None,
@@ -243,13 +250,15 @@ def SO_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
     freq_range : list, optional
         The range of frequencies to include in the histogram. Defaults to [np.min(peak_freqs), np.max(peak_freqs)].
     freq_window : list, optional
-        The size and step of the frequency bins. Defaults to [(freq_range[1] - freq_range[0]) / 5, (freq_range[1] - freq_range[0]) / 100].
+        The size and step of the frequency bins.
+        Defaults to [(freq_range[1] - freq_range[0]) / 5, (freq_range[1] - freq_range[0]) / 100].
     phase_range : list, optional
         The range of SO-phases to include in the histogram. Defaults to [-np.pi, np.pi].
     phase_window : list, optional
         The size and step of the SO-phase bins. Defaults to [(2 * np.pi) / 5, (2 * np.pi) / 100].
     min_time_in_bin : int, optional
-        The minimum amount of time required in each SO-phase bin for it to be included in the histogram. Defaults to 1 minute.
+        The minimum amount of time required in each SO-phase bin for it to be included in the histogram.
+        Defaults to 1 minute.
     verbose : bool, optional
         Verbose setting. Defaults to True.
 

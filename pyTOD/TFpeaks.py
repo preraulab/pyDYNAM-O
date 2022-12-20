@@ -172,7 +172,7 @@ def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged: np.ndarray, 
     labels_merged : np.ndarray
         The merged labels array
     graph_data : np.ndarray
-        The data array used to compute the edge weights
+        The data array used to compute the edge weight
     region_num : int
         The region number to trim
     trim_volume : float

@@ -268,11 +268,11 @@ def consecutive(data):
     >> consecutive([1, 1, 1, 2, 2, 3, 3, 3, 3])
     [(1, 0, 2), (2, 3, 4), (3, 5, 8)]
     """
-    vals = [v[0] for v in groupby(data)]
-    cons = [sum(1 for _ in g) for v, g in groupby(data)]
+    data_group = [(v, sum(1 for _ in g)) for v, g in groupby(data)]
+    vals, cons = zip(*data_group)
 
-    start_inds = np.cumsum(np.insert(cons, 0, 0))
-    end_inds = np.add(start_inds[0:-1], cons) - 1
+    start_inds = np.cumsum((0,) + cons[:-1])
+    end_inds = start_inds + cons - 1
 
     return list(zip(vals, start_inds, end_inds))
 
@@ -343,7 +343,7 @@ def hypnoplot(time: list, stage: list, ax: matplotlib.axes.Axes = None, plot_buf
         else:
             color = (.6, .6, .6)
 
-        ax.add_patch(Rectangle((ptime[c[1]], ylim[0]), ptime[c[2]] - ptime[c[1]], ylim[1] - ylim[0], facecolor=color))
+        ax.add_patch(Rectangle((ptime[c[1]], ylim[0]), ptime[c[2]+1] - ptime[c[1]], ylim[1] - ylim[0], facecolor=color))
 
 
 def butter_bandpass(lowcut, highcut, fs, order=50):
@@ -395,7 +395,7 @@ def butter_highpass(lowcut, fs, order=50):
     return sos
 
 
-def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dir):
+def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dur):
     """Find artifacts by removing data until none left outside of criterion
 
     Parameters
@@ -408,7 +408,7 @@ def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dir):
         Data to remove prior to procedure
     smooth_dur : int
         Duration (in samples) of smoothing window for mean filter
-    detrend_dir : int
+    detrend_dur : int
         Duration (in samples) of detrending window for mean filter
 
     Returns
@@ -421,7 +421,7 @@ def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dir):
     # Smooth envelope and take the log
     envelope_smooth = np.log(convolve(signal_envelope, np.ones(smooth_dur), 'same') / smooth_dur)
     # Detrend envelope using mean filter
-    envelope_detrend = envelope_smooth - convolve(envelope_smooth, np.ones(detrend_dir), 'same') / detrend_dir
+    envelope_detrend = envelope_smooth - convolve(envelope_smooth, np.ones(detrend_dur), 'same') / detrend_dur
 
     envelope = nan_zscore(envelope_detrend)
 
@@ -451,7 +451,7 @@ def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=
                      smooth_duration=2, detrend_duration=5 * 60):
     """An iterative method to detect artifacts based on data distribution spread
 
-        Parameters
+    Parameters
     ----------
     data : array_like
         The data to be filtered.
@@ -487,19 +487,19 @@ def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=
 
     bad_inds = np.abs(nan_zscore(data)) > 10 | np.isnan(data) | np.isinf(data) | find_flat(data)
 
-    hf_artifacts = zscore_remove(data_high, crit_high, bad_inds, smooth_dur=smooth_duration * fs,
-                                 detrend_dir=detrend_duration * fs)
-    bb_artifacts = zscore_remove(data_broad, crit_broad, bad_inds, smooth_dur=smooth_duration * fs,
-                                 detrend_dir=detrend_duration * fs)
+    hf_artifacts = zscore_remove(data_high, crit_high, bad_inds, smooth_dur=int(smooth_duration * fs),
+                                 detrend_dur=int(detrend_duration * fs))
+    bb_artifacts = zscore_remove(data_broad, crit_broad, bad_inds, smooth_dur=int(smooth_duration * fs),
+                                 detrend_dur=int(detrend_duration * fs))
 
     return np.logical_or(hf_artifacts, bb_artifacts)
 
 
-def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist,
-                 freq_cbins):
+def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SO_power_label,
+                 SOphase_hist, freq_cbins):
     """Creates a summary plot with hypnogram, spectrogram, SO-power, scatter plot, and SOPHs
 
-        Parameters
+    Parameters
     ----------
     data : ndarray
         The raw EEG data.
@@ -517,6 +517,8 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
         The normalized SO-power.
     SO_power_times : ndarray
         The times corresponding to the SO-power.
+    SO_power_label : string
+        Label of the SO-power axis.
     SOphase_hist : ndarray
         A 2D histogram of the SO-phase.
     freq_cbins : ndarray
@@ -545,10 +547,11 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
                                                    min_nfft, detrend_opt, multiprocess, cpus,
                                                    weighting, False, False, False, False)
 
-    lab_size = 9
-    clab_size = 8
-    title_size = 12
-    tick_size = 7
+    clab_size = 8  # fontsize of the colorbar labels
+    plt.rc('axes', titlesize=12)  # fontsize of the axes title
+    plt.rc('axes', labelsize=9)  # fontsize of the x and y labels
+    plt.rc('xtick', labelsize=7)  # fontsize of the tick labels
+    plt.rc('ytick', labelsize=7)  # fontsize of the tick labels
 
     fig = plt.figure(figsize=(8.5 * .7, 11 * .7))
     gs = gridspec.GridSpec(nrows=5, ncols=2, height_ratios=[0.01, .2, .01, .2, .3],
@@ -581,9 +584,7 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
     # Plot hypnogram
     plt.axes(ax0)
     hypnoplot(stages.Time.values / 3600, stages.Stage.values, ax0)
-    plt.xticks(fontsize=tick_size)
-    plt.yticks(fontsize=tick_size)
-    ax0.set_title('EEG Spectrogram', fontsize=title_size, fontweight='bold')
+    ax0.set_title('EEG Spectrogram', fontweight='bold')
 
     # Plot spectrogram
     extent = stimes[0] / 3600, stimes[-1] / 3600, frequency_range[1], frequency_range[0]
@@ -591,22 +592,17 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
     im = ax1.imshow(pow2db(spect), extent=extent, aspect='auto')
     clims = np.percentile(pow2db(spect[~np.isnan(spect)]), [5, 98])
     im.set_clim(clims[0], clims[1])
-    ax1.set_ylabel('Frequency (Hz)', fontsize=lab_size)
+    ax1.set_ylabel('Frequency (Hz)')
     ax1.invert_yaxis()
     im.set_cmap(plt.cm.get_cmap('cet_rainbow4'))
     cbar = outside_colorbar(fig, ax1, im, gap=0.01, shrink=0.8)
     cbar.set_label("Power (dB)", fontsize=clab_size)
-    cbar.ax.tick_params(labelsize=7)
-    plt.xticks(fontsize=tick_size)
-    plt.yticks(fontsize=tick_size)
 
     # Plot SO_power
     plt.axes(ax2)
     ax2.plot(np.divide(SO_power_times, 3600), SO_power_norm, 'b', linewidth=1)
     ax2.set_xlim([SO_power_times[0] / 3500, SO_power_times[-1] / 3600])
-    # ax2.set_xlabel('Time (hrs)', fontsize=lab_size)
-    plt.xticks(fontsize=tick_size)
-    plt.yticks(fontsize=tick_size)
+    ax2.set_ylabel(SO_power_label)
 
     # Plot the scatter plot
     peak_size = stats_table['volume'] / 200
@@ -630,47 +626,38 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
     cbar.set_ticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi])
     cbar.set_ticklabels(['-π', '-π/2', '0', 'π/2', 'π'], fontsize=7)
     cbar.set_label("Phase (rad)", fontsize=clab_size)
-    cbar.ax.tick_params(labelsize=lab_size)
 
     ax3.set_xlabel('Time (hrs)')
-    ax3.set_ylabel('Frequency (Hz)', fontsize=lab_size)
-    ax3.set_title('Extracted Time-Frequency Peaks', fontsize=title_size, fontweight='bold')
-    plt.xticks(fontsize=tick_size)
-    plt.yticks(fontsize=tick_size)
+    ax3.set_ylabel('Frequency (Hz)')
+    ax3.set_title('Extracted Time-Frequency Peaks', fontweight='bold')
 
     # SO-power Histogram
-    ax4.set_title('SO-power Histogram', fontsize=title_size, fontweight='bold')
+    ax4.set_title('SO-Power Histogram', fontweight='bold')
     extent = SO_cbins[0], SO_cbins[-1], freq_cbins[-1], freq_cbins[0]
     plt.axes(ax4)
     im = ax4.imshow(SOpow_hist, extent=extent, aspect='auto')
     clims = np.percentile(SOpow_hist, [5, 98])
     im.set_clim(clims[0], clims[1])
-    ax4.set_ylabel('Frequency (Hz)', fontsize=lab_size)
+    ax4.set_ylabel('Frequency (Hz)')
     ax4.invert_yaxis()
     im.set_cmap(plt.cm.get_cmap('cet_gouldian'))
     cbar = outside_colorbar(fig, ax4, im, gap=0.01, shrink=0.6)
     cbar.set_label("Density", fontsize=clab_size)
-    cbar.ax.tick_params(labelsize=7)
-    ax4.set_xlabel('% SO-Power', fontsize=lab_size)
-    plt.xticks(fontsize=tick_size)
-    plt.yticks(fontsize=tick_size)
+    ax4.set_xlabel(SO_power_label)
 
     # SO-phase Histogram
-    ax5.set_title('SO-Phase Histogram', fontsize=title_size, fontweight='bold')
+    ax5.set_title('SO-Phase Histogram', fontweight='bold')
     extent = -np.pi, np.pi, freq_cbins[-1], freq_cbins[0]
     plt.axes(ax5)
     im = ax5.imshow(SOphase_hist, extent=extent, aspect='auto')
     clims = np.percentile(SOphase_hist, [5, 98])
     im.set_clim(clims[0], clims[1])
-    ax5.set_ylabel('Frequency (Hz)', fontsize=lab_size)
+    ax5.set_ylabel('Frequency (Hz)')
     ax5.invert_yaxis()
     im.set_cmap(plt.cm.get_cmap('magma'))
     cbar = outside_colorbar(fig, ax5, im, gap=0.01, shrink=0.6)
     cbar.set_label("Proportion", fontsize=clab_size)
-    cbar.ax.tick_params(labelsize=7)
     plt.xticks([-np.pi, -np.pi / 2, 0, np.pi / 2, np.pi], ['-π', '-π/2', '0', 'π/2', 'π'])
-    plt.xlabel('SO-Phase (rad)', fontsize=lab_size)
-    plt.xticks(fontsize=tick_size)
-    plt.yticks(fontsize=tick_size)
+    plt.xlabel('SO-Phase (rad)')
 
     plt.show()
