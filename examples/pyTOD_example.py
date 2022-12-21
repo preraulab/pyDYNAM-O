@@ -92,7 +92,11 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
                      SOphase_hist, freq_cbins)
 
 
-if __name__ == '__main__':
+def main():
+    """
+    Evoked when executing the .py file directly.
+    Adjust parameters here to analyze the example data with different settings.
+    """
     data_range = 'night'  # 'segment' vs. 'night'
     quality = 'fast'  # Quality setting 'precision','fast', or 'draft'
     save_peaks = False  # Save csv of peaks if computing
@@ -100,3 +104,7 @@ if __name__ == '__main__':
 
     # Run example data
     run_example_data(data_range, quality, save_peaks, load_peaks)
+
+
+if __name__ == '__main__':
+    main()
