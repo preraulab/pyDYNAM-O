@@ -83,7 +83,7 @@ def compute_tfpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_t
 
     # Remove baseline
     baseline = np.percentile(spect, 2, axis=1, keepdims=True)
-    spect_baseline = np.divide(spect, baseline)
+    spect_baseline = spect / baseline
 
     # Set the size of the spectrogram samples
     window_idxs, start_times = process_segments_params(segment_dur, stimes)

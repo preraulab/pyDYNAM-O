@@ -265,7 +265,7 @@ def process_segments_params(segment_dur: float, stimes: np.ndarray):
     return window_idxs, start_times
 
 
-def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_threshold=8, max_merges=np.inf,
+def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_thresh=8, max_merges=np.inf,
                    trim_volume=0.8, downsample=None, dur_min=-np.inf, dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf,
                    prom_min=-np.inf, plot_on=True, verbose=True) -> pd.DataFrame:
     """Detects TF-peaks within a spectrogram
@@ -280,7 +280,7 @@ def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
         The time resolution of the spectrogram in seconds. The default is 1.
     d_freq : int, optional
         The frequency resolution of the spectrogram in Hz. The default is 1.
-    merge_threshold : int, optional
+    merge_thresh : int, optional
         The threshold for merging regions. The default is 8.
     max_merges : int, optional
         The maximum number of merges to perform. The default is np.inf.
@@ -334,7 +334,7 @@ def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     # Expand labels by 5 (to be safe) to join them. This will be used to compute the RAG
     join_labels = segmentation.expand_labels(labels, distance=5)
 
-    # Create a region adjacency graph (RAG))
+    # Create a region adjacency graph (RAG)
     RAG = future.graph.RAG(join_labels, connectivity=2)
 
     # Add labels, borders, and regions to each RAG node
@@ -385,7 +385,7 @@ def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 
     # Merge loop
     num_merges = 1
-    while max_val >= merge_threshold:
+    while max_val >= merge_thresh:
         if num_merges > max_merges:
             break
 
