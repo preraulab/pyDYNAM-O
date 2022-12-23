@@ -8,7 +8,7 @@ from scipy.interpolate import interp1d
 from tqdm import tqdm
 
 from pyTOD.SOPH import wrap_phase, get_so_phase, so_power_histogram, so_phase_histogram
-from pyTOD.TFpeaks import process_segments_params, detect_TFpeaks
+from pyTOD.TFpeaks import process_segments_params, detect_tfpeaks
 from pyTOD.multitaper import multitaper_spectrogram
 from pyTOD.utils import convert_hms, detect_artifacts, min_prominence, summary_plot
 
@@ -99,9 +99,9 @@ def compute_tfpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_t
         tic_outer = timeit.default_timer()
 
     # # Use this if you would like to run a test segment
-    # stats_table = detect_TFpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
+    # stats_table = detect_tfpeaks(spect_baseline[:, window_idxs[0]], start_times[0], *dp_params)
 
-    stats_tables = Parallel(n_jobs=cpus)(delayed(detect_TFpeaks)(
+    stats_tables = Parallel(n_jobs=cpus)(delayed(detect_tfpeaks)(
         spect_baseline[:, window_idxs[num_window]], start_times[num_window], *dp_params)
                                          for num_window in tqdm(range(num_windows)))
 

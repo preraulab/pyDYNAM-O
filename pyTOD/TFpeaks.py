@@ -27,8 +27,8 @@ def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_da
         Edge weight
     """
     # Get border and region tuples
-    i_border, i_region = list(graph_rag.nodes[graph_edge[0]].values())[1:]
-    j_border, j_region = list(graph_rag.nodes[graph_edge[1]].values())[1:]
+    i_border, i_region = graph_rag.nodes[graph_edge[0]].values()
+    j_border, j_region = graph_rag.nodes[graph_edge[1]].values()
 
     A_ij = np.intersect1d(i_border, j_border)
 
@@ -95,8 +95,8 @@ def merge_weight(graph_rag: skimage.future.graph.RAG, src: int, dst: int, neighb
     """
 
     # Get border and region tuples
-    i_border, i_region = list(graph_rag.nodes[dst].values())[1:]
-    j_border, j_region = list(graph_rag.nodes[neighbor].values())[1:]
+    i_border, i_region = graph_rag.nodes[dst].values()
+    j_border, j_region = graph_rag.nodes[neighbor].values()
 
     A_ij = np.intersect1d(i_border, j_border)
 
@@ -161,6 +161,45 @@ def merge_regions(graph_rag: skimage.future.graph.RAG, src: int, dst: int):
     graph_rag.nodes[dst]["border"] = np.setxor1d(graph_rag.nodes[dst]["border"], graph_rag.nodes[src]["border"])
 
 
+def merge_nodes(graph_rag: skimage.future.graph.RAG, src: int, dst: int, graph_data: np.ndarray):
+    """Merge node `src` and `dst`.
+
+    The new combined node is adjacent to all the neighbors of `src`
+    and `dst`. `weight_func` is called to decide the weight of edges
+    incident on the new node.
+
+    Parameters
+    ----------
+    graph_rag : skimage.future.graph.RAG
+        The region adjacency graph
+    src, dst : int
+        Nodes to be merged.
+    graph_data : np.ndarray
+        The data array for the graph.
+
+    Returns
+    -------
+    None
+
+    Notes
+    -----
+    Modified from skimage/future/graph/rag.py/merge_nodes
+    """
+    src_nbrs = set(graph_rag.neighbors(src))
+    dst_nbrs = set(graph_rag.neighbors(dst))
+    neighbors = (src_nbrs | dst_nbrs) - {src, dst}
+
+    new = dst
+
+    for neighbor in neighbors:
+        data = merge_weight(graph_rag, src, new, neighbor, graph_data)
+        graph_rag.add_edge(neighbor, new, attr_dict=data)
+
+    graph_rag.remove_node(src)
+
+    return
+
+
 def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged: np.ndarray, graph_data: np.ndarray, region_num: int,
                 trim_volume: float):
     """Trims a region to a given volume percentage
@@ -207,7 +246,7 @@ def trim_region(graph_rag: skimage.future.graph.RAG, labels_merged: np.ndarray, 
     if np.max(label_img) > 1:
         rp = measure.regionprops(label_img)
         max_area_label = rp[np.argmax([prop.area for prop in rp])].label
-        label_img = (label_img == max_area_label)
+        label_img = label_img == max_area_label
 
     return label_img * region_num
 
@@ -265,7 +304,7 @@ def process_segments_params(segment_dur: float, stimes: np.ndarray):
     return window_idxs, start_times
 
 
-def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_thresh=8, max_merges=np.inf,
+def detect_tfpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, merge_thresh=8, max_merges=np.inf,
                    trim_volume=0.8, downsample=None, dur_min=-np.inf, dur_max=np.inf, bw_min=-np.inf, bw_max=np.inf,
                    prom_min=-np.inf, plot_on=True, verbose=True) -> pd.DataFrame:
     """Detects TF-peaks within a spectrogram
@@ -338,21 +377,16 @@ def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
     RAG = future.graph.RAG(join_labels, connectivity=2)
 
     # Add labels, borders, and regions to each RAG node
+    zero_labels = labels == 0
     for n in RAG:
-        RAG.nodes[n]['labels'] = [n]
-
-        curr_region = (labels == n)
+        curr_region = labels == n
         # Compute the borders by intersecting 1 pixel dilation with zero-valued watershed border regions
-        bx, by = np.where(morphology.dilation(curr_region, np.ones([3, 3])) & (labels == 0))
-        border = np.array([np.ravel_multi_index((a, b), labels.shape) for a, b in zip(bx, by)])
+        bx, by = np.where(morphology.dilation(curr_region, np.ones([3, 3])) & zero_labels)
+        RAG.nodes[n]["border"] = bx * labels.shape[1] + by  # row-major flat index
 
         # Get regions by bing full region
         rx, ry = np.where(curr_region)
-        region = np.array([np.ravel_multi_index((a, b), labels.shape) for a, b in zip(rx, ry)])
-
-        # Set node properties
-        RAG.nodes[n]["border"] = border
-        RAG.nodes[n]["region"] = region
+        RAG.nodes[n]["region"] = rx * labels.shape[1] + ry  # row-major flat index
 
     if verbose:
         print('Computing weights...')
@@ -402,18 +436,16 @@ def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
         if verbose:
             tic_borders = timeit.default_timer()
 
-        # merge_regions(RAG, src, dst)
-        # Region is union of regions
-        RAG.nodes[dst]["region"] = np.union1d(RAG.nodes[dst]["region"], RAG.nodes[src]["region"])
-        # Border is symmetric difference of borders
-        RAG.nodes[dst]["border"] = np.setxor1d(RAG.nodes[dst]["border"], RAG.nodes[src]["border"])
+        # Merge borders of src node into dst node
+        merge_regions(RAG, src, dst)
 
         if verbose:
             toc_borders = timeit.default_timer()
             merge_borders_time += toc_borders - tic_borders
             tic_node = timeit.default_timer()
 
-        RAG.merge_nodes(src, dst, merge_weight, extra_arguments=[segment_data_LR])
+        # Merge src node into dst node and remove src node from RAG
+        merge_nodes(RAG, src, dst, segment_data_LR)
 
         if verbose:
             toc_node = timeit.default_timer()
@@ -453,7 +485,7 @@ def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
 
     c = 1
     for n in np.unique(labels_merged):
-        curr_region = (labels_merged == n)
+        curr_region = labels_merged == n
         rx, ry = np.where(curr_region)
         bw = (np.max(rx) - np.min(rx)) * d_freq
         dur = (np.max(ry) - np.min(ry)) * d_time
@@ -484,6 +516,7 @@ def detect_TFpeaks(segment_data: np.ndarray, start_time=0, d_time=1, d_freq=1, m
                                                                                                 'bbox',
                                                                                                 'intensity_min',
                                                                                                 'intensity_max')))
+
     # Calculate all custom stats
     stats_table['prominence'] = stats_table['intensity_max'] - stats_table['intensity_min']
 
