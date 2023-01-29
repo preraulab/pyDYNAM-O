@@ -7,7 +7,7 @@ from joblib import cpu_count, Parallel, delayed
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
-from dynam_o.SOPH import wrap_phase, get_so_phase, so_power_histogram, so_phase_histogram
+from dynam_o.SOPH import so_power_histogram, so_phase_histogram
 from dynam_o.TFpeaks import process_segments_params, detect_tfpeaks
 from dynam_o.multitaper import multitaper_spectrogram
 from dynam_o.utils import convert_hms, detect_artifacts, min_prominence, summary_plot
@@ -140,24 +140,26 @@ def compute_sophs(data, fs, stages, stats_table, norm_method='percent', verbose=
 
     Returns
     -------
-    SOpow_hist : numpy.ndarray
+    SOpower_hist : numpy.ndarray
         SO-power histogram
-    freq_cbins : numpy.ndarray
-        Frequency bins for SO-power histogram
-    SO_cbins : numpy.ndarray
+    SOphase_hist : numpy.ndarray
+        SO-phase histogram
+    SOpower_cbins : numpy.ndarray
         SO-power bins for SO-power histogram
+    SOphase_cbins : numpy.ndarray
+        Phase bins for SO-phase histogram
+    freq_cbins : numpy.ndarray
+        Frequency bins for SO-power/phase histograms
     SO_power_norm : numpy.ndarray
         Normalized SO-power for each peak
     SO_power_times : numpy.ndarray
         Time of each peak in SO-power histogram
     SO_power_label : string
         Label of the SO-power axis
-    SOphase_hist : numpy.ndarray
-        SO-phase histogram
-    freq_cbins : numpy.ndarray
-        Frequency bins for SO-phase histogram
-    phase_cbins : numpy.ndarray
-        Phase bins for SO-phase histogram
+    SO_phase : numpy.ndarray
+        SO-phase for each peak
+    SO_phase_times : numpy.ndarray
+        Time of each peak in SO-phase histogram
     """
     if verbose:
         print('Detecting artifacts...', end=" ")
@@ -169,55 +171,44 @@ def compute_sophs(data, fs, stages, stats_table, norm_method='percent', verbose=
         # noinspection PyUnboundLocalVariable
         print('Took ' + convert_hms(timeit.default_timer() - tic_art))
 
-    # Compute peak phase
-    t = np.arange(len(data)) / fs
-    phase = get_so_phase(data, fs)
-
-    # Compute peak phase for plotting
-    peak_interp = interp1d(t, phase)
-    peak_phase = wrap_phase(peak_interp(stats_table['peak_time'].values))
-    stats_table['phase'] = peak_phase
+    # Compute artifact peaks
+    art_interp = interp1d(np.arange(len(data)) / fs, artifacts, kind='nearest')
+    stats_table['artifact_time'] = art_interp(stats_table.peak_time).astype(bool)
 
     # Compute peak stage
-    stage_interp = interp1d(stages.Time.values, stages.Stage.values, kind='previous',
-                            fill_value="extrapolate")
+    stage_interp = interp1d(stages.Time.values, stages.Stage.values, kind='previous', bounds_error=False, fill_value=0)
+    stats_table['stage'] = stage_interp(stats_table.peak_time)
 
-    peak_stages = stage_interp(stats_table.peak_time)
-    stats_table['stage'] = peak_stages
+    # # Only consider non-Wake peaks at non-artifact times
+    # stats_table = stats_table.query('stage<5 and not artifact_time')
 
-    # Compute artifact peaks
-    art_interp = interp1d(t, artifacts, kind='nearest',
-                          fill_value="extrapolate")
-    artifact_time = art_interp(stats_table.peak_time)
-    stats_table['artifact_time'] = artifact_time.astype(bool)
-
-    # Only consider non-Wake peaks at non-artifact times
-    stats_table = stats_table.query('stage<5 and not artifact_time')
-
+    """ SOPH computation """
     if verbose:
         print('Computing SO-Power Histogram...', end=" ")
-        tic_SOpow = timeit.default_timer()
+        tic_SOpower = timeit.default_timer()
 
-    SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label = \
+    SOpower_hist, freq_cbins, SOpower_cbins, peak_SOpower, SO_power_norm, SO_power_times, SO_power_label = \
         so_power_histogram(stats_table.peak_time, stats_table.peak_frequency,
                            data, fs, artifacts, freq_range=[4, 25], freq_window=[1, 0.2],
-                           norm_method=norm_method, verbose=False)
+                           norm_method=norm_method, verbose=verbose)
     if verbose:
         # noinspection PyUnboundLocalVariable
-        print('Took ' + convert_hms(timeit.default_timer() - tic_SOpow))
+        print('Took ' + convert_hms(timeit.default_timer() - tic_SOpower))
 
         print('Computing SO-Phase Histogram...', end=" ")
-        tic_SOhase = timeit.default_timer()
+        tic_SOphase = timeit.default_timer()
 
-    SOphase_hist, freq_cbins, phase_cbins = \
+    SOphase_hist, _, SOphase_cbins, peak_SOphase, SO_phase, SO_phase_times = \
         so_phase_histogram(stats_table.peak_time, stats_table.peak_frequency,
-                           data, fs, freq_range=[4, 25], freq_window=[1, 0.2], verbose=False)
+                           data, fs, freq_range=[4, 25], freq_window=[1, 0.2], verbose=verbose)
+    stats_table['phase'] = peak_SOphase
+
     if verbose:
         # noinspection PyUnboundLocalVariable
-        print('Took ' + convert_hms(timeit.default_timer() - tic_SOhase))
+        print('Took ' + convert_hms(timeit.default_timer() - tic_SOphase))
 
-    return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label, \
-        SOphase_hist, freq_cbins, phase_cbins
+    return SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, \
+        SO_power_norm, SO_power_times, SO_power_label, SO_phase, SO_phase_times
 
 
 def run_tfpeaks_soph(data, fs, stages, downsample=None, segment_dur=30, merge_thresh=8,
@@ -250,36 +241,39 @@ def run_tfpeaks_soph(data, fs, stages, downsample=None, segment_dur=30, merge_th
     Returns
     -------
     stats_table : pandas.DataFrame
-        A table containing the statistics of each TF-peak segment.
-    SOpow_hist : ndarray
-        A histogram of the SO-power in each TF-peak segment.
-    freq_cbins : ndarray
-        The frequency bins used to compute the SO-power histogram.
-    SO_cbins : ndarray
-        The SO-power bins used to compute the SO-power histogram.
-    SO_power_norm : ndarray
-        The normalized SO-power in each TF-peak segment.
-    SO_power_times : ndarray
-        The time points corresponding to each SO-power value in each TF-peak segment.
+        A table containing the statistics.
+    SOpower_hist : ndarray
+        A histogram of the SO-power
     SOphase_hist : ndarray
-        A histogram of the SO-phase in each TF-peak segment.
-    freq_cbins : ndarray
-        The frequency bins used to compute the SO-phase histogram.
-    phase_cbins : ndarray
+        A histogram of the SO-phase
+    SOpower_cbins : ndarray
+        The SO-power bins used to compute the SO-power histogram.
+    SOphase_cbins : ndarray
         The SO-phase bins used to compute the SO-phase histogram.
+    freq_cbins : ndarray
+        The frequency bins used to compute the SO-power/phase histograms.
+    SO_power_norm : ndarray
+        The normalized SO-power value.
+    SO_power_times : ndarray
+        The time points corresponding to each SO-power value.
+    SO_phase : ndarray
+        The SO-phase value.
+    SO_phase_times : ndarray
+        The time points corresponding to each SO-phase value.
     """
 
     # Extract TF-peaks and compute peak statistics table
     stats_table = compute_tfpeaks(data, fs, downsample, segment_dur, merge_thresh, max_merges, trim_volume)
 
     # Compute SO-power and SO-phase Histograms
-    SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label, \
-        SOphase_hist, freq_cbins, phase_cbins = compute_sophs(data, fs, stages, stats_table, norm_method=norm_method)
+    SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, \
+        SO_power_norm, SO_power_times, SO_power_label, \
+        SO_phase, SO_phase_times = compute_sophs(data, fs, stages, stats_table, norm_method=norm_method)
 
     # Create summary plot if selected
     if plot_on:
-        summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SO_power_label,
-                     SOphase_hist, freq_cbins)
+        summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
+                     SO_power_norm, SO_power_times, SO_power_label, SOphase_hist, freq_cbins)
 
-    return stats_table, SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SOphase_hist, freq_cbins, \
-        phase_cbins
+    return stats_table, SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, \
+        SO_power_norm, SO_power_times, SO_phase, SO_phase_times

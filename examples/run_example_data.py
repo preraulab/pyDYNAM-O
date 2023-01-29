@@ -44,7 +44,7 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
     stages = pd.read_csv(example_data_dir + '/' + data_range + '_stages.csv')
     print('Done')
 
-    # Sampling Frequency
+    # Sampling frequency of the example data
     fs = 100
 
     if not load_peaks:
@@ -71,11 +71,9 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
         trim_volume = 0.8  # Trim TF-peaks to retain 80 of original volume
         max_merges = np.inf  # Set limit on number merges if needs be
 
-        stats_table, \
-            SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, \
-            SOphase_hist, freq_cbins, phase_cbins = run_tfpeaks_soph(data, fs, stages, downsample, segment_dur,
-                                                                     merge_thresh, max_merges, trim_volume,
-                                                                     norm_method='p5shift', plot_on=True)
+        stats_table, *_ = run_tfpeaks_soph(data, fs, stages, downsample, segment_dur,
+                                           merge_thresh, max_merges, trim_volume,
+                                           norm_method='p5shift', plot_on=True)
 
         if save_peaks:
             print('Writing stats_table to file...', end=" ")
@@ -85,11 +83,12 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
     else:  # load saved TF-peaks from file
         stats_table = pd.read_csv(example_data_dir + '/' + data_range + '_peaks.csv')
 
-        SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label, \
-            SOphase_hist, freq_cbins, phase_cbins = compute_sophs(data, fs, stages, stats_table, norm_method='p5shift')
+        SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, \
+            SO_power_norm, SO_power_times, SO_power_label, *_ = compute_sophs(data, fs, stages, stats_table,
+                                                                              norm_method='p5shift')
 
-        summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SO_power_label,
-                     SOphase_hist, freq_cbins)
+        summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
+                     SO_power_norm, SO_power_times, SO_power_label, SOphase_hist, freq_cbins)
 
 
 def main():

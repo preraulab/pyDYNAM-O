@@ -507,8 +507,8 @@ def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=
     return artifacts
 
 
-def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SO_power_label,
-                 SOphase_hist, freq_cbins):
+def summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
+                 SO_power_norm, SO_power_times, SO_power_label, SOphase_hist, freq_cbins):
     """Creates a summary plot with hypnogram, spectrogram, SO-power, scatter plot, and SOPHs
 
     Parameters
@@ -521,9 +521,9 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
         A pandas DataFrame containing the sleep stages.
     stats_table : pandas.DataFrame
         A pandas DataFrame containing the statistics of the extracted peaks.
-    SOpow_hist : ndarray
+    SOpower_hist : ndarray
         A 2D histogram of the SO-power.
-    SO_cbins : ndarray
+    SOpower_cbins : ndarray
         The bins used to create the SO-power histogram.
     SO_power_norm : ndarray
         The normalized SO-power.
@@ -534,7 +534,7 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
     SOphase_hist : ndarray
         A 2D histogram of the SO-phase.
     freq_cbins : ndarray
-        The bins used to create the SO-phase histogram.
+        The bins used to create the SO-power/phase histograms.
 
     Returns
     -------
@@ -610,7 +610,7 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
     cbar = outside_colorbar(fig, ax1, im, gap=0.01, shrink=0.8)
     cbar.set_label("Power (dB)", fontsize=clab_size)
 
-    # Plot SO_power
+    # Plot SO-power
     plt.axes(ax2)
     ax2.plot(np.divide(SO_power_times, 3600), SO_power_norm, 'b', linewidth=1)
     ax2.set_xlim([SO_power_times[0] / 3500, SO_power_times[-1] / 3600])
@@ -622,9 +622,9 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
     peak_size[peak_size > pmax] = 0
     peak_size = np.square(peak_size)
 
-    x = np.divide(stats_table.peak_time, 3600)
-    y = [stats_table.peak_frequency]
-    c = [stats_table.phase]
+    x = np.divide(stats_table['peak_time'], 3600)
+    y = stats_table['peak_frequency']
+    c = stats_table['phase']
 
     sp = ax3.scatter(x, y, peak_size, c, cmap='hsv')
     ax3.set_xlim([stimes[0] / 3500, stimes[-1] / 3600])
@@ -645,10 +645,10 @@ def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_n
 
     # SO-power Histogram
     ax4.set_title('SO-Power Histogram', fontweight='bold')
-    extent = SO_cbins[0], SO_cbins[-1], freq_cbins[-1], freq_cbins[0]
+    extent = SOpower_cbins[0], SOpower_cbins[-1], freq_cbins[-1], freq_cbins[0]
     plt.axes(ax4)
-    im = ax4.imshow(SOpow_hist, extent=extent, aspect='auto')
-    clims = np.percentile(SOpow_hist, [5, 98])
+    im = ax4.imshow(SOpower_hist, extent=extent, aspect='auto')
+    clims = np.percentile(SOpower_hist, [5, 98])
     im.set_clim(clims[0], clims[1])
     ax4.set_ylabel('Frequency (Hz)')
     ax4.invert_yaxis()

@@ -25,7 +25,7 @@ def wrap_phase(phase: np.ndarray) -> np.ndarray:
     return np.angle(np.exp(1j * phase))
 
 
-def get_so_phase(data, fs, lowcut=0.3, highcut=1.5, order=10):
+def compute_so_phase(data, fs, lowcut=0.3, highcut=1.5, order=10):
     """Computes unwrapped slow oscillation phase
     Note: Phase is unwrapped because wrapping does not return to original angle given the unwrapping algorithm
 
@@ -40,16 +40,18 @@ def get_so_phase(data, fs, lowcut=0.3, highcut=1.5, order=10):
     Returns
     -------
     phase : Unwrapped phase
+    t : time axis
     """
     sos = butter_bandpass(lowcut, highcut, fs, order)
     data_filt = sosfiltfilt(sos, data)
 
     analytic_signal = hilbert(data_filt)
     phase = np.unwrap(np.angle(analytic_signal))
-    return phase
+    t = np.arange(len(data)) / fs
+    return phase, t
 
 
-def get_so_power(data, fs, lowcut=0.3, highcut=1.5):
+def compute_so_power(data, fs, lowcut=0.3, highcut=1.5):
     """Computes slow oscillation power
 
     Parameters
@@ -124,12 +126,14 @@ def so_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
 
     Returns
     -------
-    SOpow_hist : array_like
+    SOpower_hist : array_like
         SO power histogram.
     freq_cbins : array_like
         Center frequencies of frequency bins.
-    SO_cbins : array_like
+    SOpower_cbins : array_like
         Center SO powers of SO power bins.
+    peak_SOpower : array_like
+        SO power at peak_times.
     SO_power_norm : array_like
         Normalized SO power.
     SO_power_times : array_like
@@ -139,7 +143,7 @@ def so_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
     """
     good_data = copy.deepcopy(data)
     good_data[artifacts] = np.nan
-    SO_power, SO_power_times = get_so_power(good_data, fs, lowcut=0.3, highcut=1.5)
+    SO_power, SO_power_times = compute_so_power(good_data, fs, lowcut=0.3, highcut=1.5)
     inds = ~np.isnan(SO_power)
 
     # Normalize  power
@@ -183,34 +187,34 @@ def so_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
     if SO_window is None:
         SO_window = [(SO_range[1] - SO_range[0]) / 5, (SO_range[1] - SO_range[0]) / 100]
 
-    SO_bin_edges, SO_cbins = create_bins(SO_range[0], SO_range[1], SO_window[0], SO_window[1], 'partial')
-    num_SObins = len(SO_cbins)
+    SO_bin_edges, SOpower_cbins = create_bins(SO_range[0], SO_range[1], SO_window[0], SO_window[1], 'partial')
+    num_SObins = len(SOpower_cbins)
 
     if verbose:
-        print('  SO-Power Histogram Settings:')
+        print('\n  SO-Power Histogram Settings:')
         print('    Normalization Method: ' + str(norm_method))
         print('    Frequency Window Size: ' + str(freq_window[0]) + ' Hz, Window Step: ' + str(freq_window[1]) + ' Hz')
         print('    Frequency Range: ', str(freq_range[0]) + '-' + str(freq_range[1]) + ' Hz')
-        print('    SO-Power Window Size: ' + str(SO_window[0]) + ', Window Step: ' + str(SO_window[1]))
-        print('    SO-Power Range: ' + str(SO_range[0]) + '-', str(SO_range[1]))
+        print('    SO-Power Window Size: ' + f'{SO_window[0]:.3f}' + ', Window Step: ' + f'{SO_window[1]:.3f}')
+        print('    SO-Power Range: ' + f'{SO_range[0]:.3f}' + ' - ' + f'{SO_range[1]:.3f}')
         print('    Minimum time required in each SO-Power bin: ' + str(min_time_in_bin) + ' min')
 
     # Initialize SO_pow x freq matrix
-    SOpow_hist = np.empty(shape=(num_freqbins, num_SObins)) * np.nan
+    SOpower_hist = np.empty(shape=(num_freqbins, num_SObins)) * np.nan
 
     # Initialize time in bin
     time_in_bin = np.zeros((num_SObins, 1))
 
     # Compute peak phase
     pow_interp = interp1d(SO_power_times[inds], SO_power_norm[inds], fill_value="extrapolate")
-    peak_SOpow = pow_interp(peak_times)
+    peak_SOpower = pow_interp(peak_times)
 
     # SO-power time step size
     d_stimes = SO_power_times[1] - SO_power_times[0]
 
     for s_bin in range(num_SObins):
         TIB_inds = np.logical_and(SO_power_norm >= SO_bin_edges[0, s_bin], SO_power_norm < SO_bin_edges[1, s_bin])
-        SO_inds = np.logical_and(peak_SOpow >= SO_bin_edges[0, s_bin], peak_SOpow < SO_bin_edges[1, s_bin])
+        SO_inds = np.logical_and(peak_SOpower >= SO_bin_edges[0, s_bin], peak_SOpower < SO_bin_edges[1, s_bin])
 
         # Time in bin in minutes
         time_in_bin[s_bin] = (np.sum(TIB_inds) * d_stimes / 60)
@@ -225,12 +229,12 @@ def so_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
                 freq_inds = np.logical_and(peak_freqs >= freq_bin_edges[0, f_bin],
                                            peak_freqs < freq_bin_edges[1, f_bin])
 
-                # Fill histogram with peak rate in this freq / SOpow bin
-                SOpow_hist[f_bin, s_bin] = np.sum(SO_inds & freq_inds) / time_in_bin[s_bin]
+                # Fill histogram with peak rate in this freq / SOpower bin
+                SOpower_hist[f_bin, s_bin] = np.sum(SO_inds & freq_inds) / time_in_bin[s_bin]
         else:
-            SOpow_hist[:, s_bin] = np.nan
+            SOpower_hist[:, s_bin] = np.nan
 
-    return SOpow_hist, freq_cbins, SO_cbins, SO_power_norm, SO_power_times, SO_power_label
+    return SOpower_hist, freq_cbins, SOpower_cbins, peak_SOpower, SO_power_norm, SO_power_times, SO_power_label
 
 
 def so_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_window=None,
@@ -268,10 +272,17 @@ def so_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
         The SO-phase histogram.
     freq_cbins : numpy.ndarray
         The center frequencies of the frequency bins.
-    phase_cbins : numpy.ndarray
+    SOphase_cbins : numpy.ndarray
         The center SO-phases of the SO-phase bins.
+    peak_SOphase : array_like
+        SO phase at peak_times.
+    SO_phase : array_like
+        SO phase.
+    SO_phase_times : array_like
+        Times of SO phase samples.
     """
-    SO_phase = wrap_phase(get_so_phase(data, fs, lowcut=0.3, highcut=1.5))
+    SO_phase, SO_phase_times = compute_so_phase(data, fs, lowcut=0.3, highcut=1.5)
+    SO_phase = wrap_phase(SO_phase)
 
     # Set defaults
     if freq_range is None:
@@ -291,18 +302,18 @@ def so_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
         phase_window = [(2 * np.pi) / 5, (2 * np.pi) / 100]
 
     # Extend bins to wrap around
-    phase_bin_edges, phase_cbins = create_bins(phase_range[0], phase_range[1],
-                                               phase_window[0], phase_window[1], 'extend')
-    num_phasebins = len(phase_cbins)
+    phase_bin_edges, SOphase_cbins = create_bins(phase_range[0], phase_range[1],
+                                                 phase_window[0], phase_window[1], 'extend')
+    num_phasebins = len(SOphase_cbins)
 
     if verbose:
-        print('  SO-Power Histogram Settings:')
+        print('\n  SO-Phase Histogram Settings:')
         print('    Frequency Window Size: ' + str(freq_window[0]) + ' Hz, Window Step: ' + str(freq_window[1]) + ' Hz')
         print('    Frequency Range: ', str(freq_range[0]) + '-' + str(freq_range[1]) + ' Hz')
         print('    SO-Phase Window Size: ' + str(phase_window[0] / np.pi) + 'π, Window Step: ' +
               str(phase_window[1] / np.pi) + 'π')
-        print('    SO-Phase Range: ' + str(phase_range[0] / np.pi) + 'π - ', str(phase_range[1] / np.pi) + 'π')
-        print('    Minimum time required in each phase bin: ' + str(min_time_in_bin) + ' min')
+        print('    SO-Phase Range: ' + str(phase_range[0] / np.pi) + 'π - ' + str(phase_range[1] / np.pi) + 'π')
+        print('    Minimum time required in each SO-phase bin: ' + str(min_time_in_bin) + ' min')
 
     # Initialize SO_pow x freq matrix
     SOphase_hist = np.empty(shape=(num_freqbins, num_phasebins)) * np.nan
@@ -312,7 +323,7 @@ def so_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
 
     # Compute peak phase
     inds = ~np.isnan(SO_phase)
-    pow_interp = interp1d(np.arange(len(data[inds])) / fs, SO_phase[inds], fill_value="extrapolate")
+    pow_interp = interp1d(SO_phase_times, SO_phase[inds], fill_value="extrapolate")
     peak_SOphase = pow_interp(peak_times)
 
     for p_bin in range(num_phasebins):
@@ -345,7 +356,7 @@ def so_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
                 freq_inds = np.logical_and(peak_freqs >= freq_bin_edges[0, f_bin],
                                            peak_freqs < freq_bin_edges[1, f_bin])
 
-                # Fill histogram with count of peaks in this freq / SOpow bin
+                # Fill histogram with count of peaks in this freq / SOpower bin
                 SOphase_hist[f_bin, p_bin] = np.sum(phase_inds & freq_inds) / time_in_bin[p_bin]
         else:
             SOphase_hist[:, p_bin] = 0
@@ -353,4 +364,4 @@ def so_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_w
     # Normalize
     SOphase_hist = SOphase_hist / np.nansum(SOphase_hist, axis=1)[:, np.newaxis]
 
-    return SOphase_hist, freq_cbins, phase_cbins
+    return SOphase_hist, freq_cbins, SOphase_cbins, peak_SOphase, SO_phase, SO_phase_times
