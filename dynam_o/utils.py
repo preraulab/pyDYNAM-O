@@ -448,7 +448,7 @@ def zscore_remove(data, crit, bad_inds, smooth_dur, detrend_dur):
 
 
 def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=4.5,
-                     smooth_duration=2, detrend_duration=5 * 60):
+                     smooth_duration=2, detrend_duration=5 * 60, buffer_duration=0):
     """An iterative method to detect artifacts based on data distribution spread
 
     Parameters
@@ -473,6 +473,8 @@ def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=
         The duration of the smoothing window in seconds. Default is 2 seconds.
     detrend_duration : float, optional
         The duration of the detrending window in seconds. Default is 5 minutes.
+    buffer_duration : float, optional
+        The duration of the buffering window in seconds. Default is 0 second.
 
     Returns
     -------
@@ -492,7 +494,17 @@ def detect_artifacts(data, fs, hf_cut=35, bb_cut=0.1, crit_high=4.5, crit_broad=
     bb_artifacts = zscore_remove(data_broad, crit_broad, bad_inds, smooth_dur=int(smooth_duration * fs),
                                  detrend_dur=int(detrend_duration * fs))
 
-    return np.logical_or(hf_artifacts, bb_artifacts)
+    artifacts = np.logical_or(hf_artifacts, bb_artifacts)
+
+    if buffer_duration > 0:
+        artifacts_length = len(artifacts)
+        for c in consecutive(artifacts):
+            if c[0]:
+                buffer_start_idx = np.max([0, c[1] - buffer_duration * fs])
+                buffer_end_idx = np.min([artifacts_length, c[2] + buffer_duration * fs + 1])
+                artifacts[buffer_start_idx:buffer_end_idx] = True
+
+    return artifacts
 
 
 def summary_plot(data, fs, stages, stats_table, SOpow_hist, SO_cbins, SO_power_norm, SO_power_times, SO_power_label,
