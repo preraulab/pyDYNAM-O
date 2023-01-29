@@ -1,4 +1,5 @@
 import copy
+import re
 
 import numpy as np
 from joblib import cpu_count
@@ -146,31 +147,39 @@ def so_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
     SO_power, SO_power_times = compute_so_power(good_data, fs, lowcut=0.3, highcut=1.5)
     inds = ~np.isnan(SO_power)
 
-    # Normalize  power
+    # Normalize SO power
     if type(norm_method) == float:
         shift_ptile = norm_method
+        shift_stages = [1, 2, 3, 4]
+        norm_method = 'shift'
+    elif re.search("^p\\d+shift\\d*$", norm_method):
+        shift_ptile = float(norm_method[1:norm_method.find('shift')])
+        shift_stages = [int(x) for x in norm_method[norm_method.find('shift')+5:]]
+
+        if not shift_stages:
+            shift_stages = [1, 2, 3, 4]
+
         norm_method = 'shift'
     else:
-        shift_ptile = 5  # default shift is the 5th percentile
+        shift_ptile = 2  # default shift is the 2nd percentile
+        shift_stages = [1, 2, 3, 4]
 
     if norm_method == 'percentile' or norm_method == 'percent':
         low_val = 1
         high_val = 99
         ptile = np.percentile(SO_power[inds], [low_val, high_val])
         SO_power_norm = SO_power - ptile[0]
-        # SO_power_norm = np.divide(SO_power_norm, (ptile[1] - ptile[0])) * 100
         SO_power_norm = SO_power_norm / (ptile[1] - ptile[0]) * 100
         SO_power_label = '% SO-Power'
-    elif norm_method == 'p5shift' or norm_method == 'shift':
-        ptile = np.percentile(SO_power[inds], [shift_ptile])
-        # SO_power_norm = np.subtract(SO_power, ptile)
+    elif norm_method == 'shift':
+        ptile = np.percentile(SO_power[inds], shift_ptile)
         SO_power_norm = SO_power - ptile
         SO_power_label = 'SO-Power (dB)'
     elif norm_method == 'absolute' or norm_method == 'none':
         SO_power_norm = SO_power
         SO_power_label = 'SO-Power (dB)'
     else:
-        raise ValueError("Not a valid normalization option, choose 'p5shift', 'percent', or 'none'")
+        raise ValueError("Not a valid normalization option, choose 'percent', 'shift', or 'none'")
 
     if freq_range is None:
         freq_range = [np.min(peak_freqs), np.max(peak_freqs)]
@@ -238,7 +247,7 @@ def so_power_histogram(peak_times, peak_freqs, data, fs, artifacts, freq_range=N
 
 
 def so_phase_histogram(peak_times, peak_freqs, data, fs, freq_range=None, freq_window=None,
-                       phase_range=None, phase_window=None, min_time_in_bin=1, verbose=True):
+                       phase_range=None, phase_window=None, min_time_in_bin=0, verbose=True):
     """Compute a slow oscillation phase histogram
 
     Parameters
