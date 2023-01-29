@@ -10,7 +10,7 @@ from matplotlib.colors import ListedColormap
 from matplotlib.patches import Rectangle
 import matplotlib.pyplot as plt
 
-from pyTOD.multitaper import multitaper_spectrogram
+from dynam_o.multitaper import multitaper_spectrogram
 
 
 def nan_zscore(data):

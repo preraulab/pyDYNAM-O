@@ -1,4 +1,4 @@
-name: pyTOD
+name: dynam_o
 channels:
   - conda-forge
 dependencies:

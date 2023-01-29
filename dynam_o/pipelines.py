@@ -7,15 +7,15 @@ from joblib import cpu_count, Parallel, delayed
 from scipy.interpolate import interp1d
 from tqdm import tqdm
 
-from pyTOD.SOPH import wrap_phase, get_so_phase, so_power_histogram, so_phase_histogram
-from pyTOD.TFpeaks import process_segments_params, detect_tfpeaks
-from pyTOD.multitaper import multitaper_spectrogram
-from pyTOD.utils import convert_hms, detect_artifacts, min_prominence, summary_plot
+from dynam_o.SOPH import wrap_phase, get_so_phase, so_power_histogram, so_phase_histogram
+from dynam_o.TFpeaks import process_segments_params, detect_tfpeaks
+from dynam_o.multitaper import multitaper_spectrogram
+from dynam_o.utils import convert_hms, detect_artifacts, min_prominence, summary_plot
 
 
 def compute_tfpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_thresh=8,
                     max_merges=np.inf, trim_volume=0.8, verbose=True):
-    """Extract TF-peaks from the data using the pyTOD packages
+    """Extract TF-peaks from the data using the dynam_o packages
 
     Parameters
     ----------
@@ -222,7 +222,7 @@ def compute_sophs(data, fs, stages, stats_table, norm_method='percent', verbose=
 
 def run_tfpeaks_soph(data, fs, stages, downsample=None, segment_dur=30, merge_thresh=8,
                      max_merges=np.inf, trim_volume=0.8, norm_method='percent', plot_on=True):
-    """Extracts TF-peaks then computes SO-power and Phase histograms using the pyTOD package
+    """Extracts TF-peaks then computes SO-power and Phase histograms using the dynam_o package
 
     Parameters
     ----------

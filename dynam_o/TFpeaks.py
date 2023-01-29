@@ -5,7 +5,7 @@ import skimage.future.graph
 from skimage import measure, segmentation, future, color, morphology
 from skimage.transform import resize
 
-from pyTOD.utils import *
+from dynam_o.utils import *
 
 
 def edge_weight(graph_rag: skimage.future.graph.RAG, graph_edge: tuple, graph_data: np.ndarray) -> float:

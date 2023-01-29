@@ -1,7 +1,22 @@
-# Transient Oscillation Dynamics (TOD) Toolbox for Python v1.0 - Prerau Laboratory ([sleepEEG.org](https://prerau.bwh.harvard.edu/))
+<p align="center">
+<img src=https://user-images.githubusercontent.com/78376124/214062562-4f8fc73b-5a0a-4cf7-b219-9d0de101528d.png>
+</p>
 
-#### This repository contains the updated and optimized toolbox code for extracting time-frequency peaks from EEG data and creating slow-oscillation power and phase histograms with a Python package. 
+## DYNAM-O: The Dynamic Oscillation Toolbox - Prerau Laboratory ([sleepEEG.org](https://prerau.bwh.harvard.edu/))
 
+#### This repository contains the updated and optimized PYTHON toolbox code for extracting time-frequency peaks from EEG data and creating slow-oscillation power and phase histograms. 
+
+## Citations
+### Paper and Toolbox
+Please cite the following paper when using this package: 
+> Patrick A Stokes, Preetish Rath, Thomas Possidente, Mingjian He, Shaun Purcell, Dara S Manoach, Robert Stickgold, Michael J Prerau, Transient Oscillation Dynamics During Sleep Provide a Robust Basis for Electroencephalographic Phenotyping and Biomarker Identification, Sleep, 2022;, zsac223, https://doi.org/10.1093/sleep/zsac223
+
+The toolbox can be referred to in the text as:
+> Prerau Lab's Dynamic Oscillation Toolbox (DYNAM-O) v1.0 (sleepEEG.org/)
+
+The paper is available open access at https://doi.org/10.1093/sleep/zsac223
+
+--- 
 ## Install
 
 - ### Fork this repo to personal git
@@ -19,24 +34,16 @@
     ``` conda install mamba -n base -c conda-forge ```\
     ``` cd <repo root directory with environment.yml> ```\
     ``` mamba env create -f environment.yml ```\
-    ``` conda activate pyTOD ```
+    ``` conda activate dynam_o ```
 
-    _You may also install pyTOD in an existing environment by skipping this step._
+    _You may also install dynam_o in an existing environment by skipping this step._
 
-- ### Install pyTOD as a package in editable mode
+- ### Install dynam_o as a package in editable mode
     ``` cd <repo root directory with setup.py> ```\
     ``` pip install -e . ```
 
 - ### Configure IDEs to use the conda environment
     [How to: Configure an existing conda environment](https://www.jetbrains.com/help/pycharm/conda-support-creating-conda-virtual-environment.html)
-
-
-## Citations
-### Paper and Toolbox
-Please cite the following paper when using this package: 
-> Patrick A Stokes, Preetish Rath, Thomas Possidente, Mingjian He, Shaun Purcell, Dara S Manoach, Robert Stickgold, Michael J Prerau, Transient Oscillation Dynamics During Sleep Provide a Robust Basis for Electroencephalographic Phenotyping and Biomarker Identification, Sleep, 2022;, zsac223, https://doi.org/10.1093/sleep/zsac223
-
-The toolbox can be referred to in the text as:
-> Transient Oscillation Dynamics (TOD) Toolbox v1.0 (sleepEEG.org/transient-oscillations-dynamics)
-
-The paper is available open access at https://doi.org/10.1093/sleep/zsac223
+--- 
+## Tutorial
+A full description of the toolbox and tutorial [can be found on the Prerau Lab site](https://prerau.bwh.harvard.edu/DYNAM-O/)

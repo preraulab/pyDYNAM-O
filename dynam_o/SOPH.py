@@ -5,8 +5,8 @@ from joblib import cpu_count
 from scipy.interpolate import interp1d
 from scipy.signal import hilbert, sosfiltfilt
 
-from pyTOD.multitaper import multitaper_spectrogram
-from pyTOD.utils import butter_bandpass, pow2db, create_bins
+from dynam_o.multitaper import multitaper_spectrogram
+from dynam_o.utils import butter_bandpass, pow2db, create_bins
 
 
 def wrap_phase(phase: np.ndarray) -> np.ndarray:

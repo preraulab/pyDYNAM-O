@@ -1,8 +1,8 @@
 import os
 import numpy as np
 import pandas as pd
-from pyTOD.utils import summary_plot
-from pyTOD.pipelines import compute_sophs, run_tfpeaks_soph
+from dynam_o.utils import summary_plot
+from dynam_o.pipelines import compute_sophs, run_tfpeaks_soph
 
 
 def run_example_data(data_range='segment', quality='fast', save_peaks=False, load_peaks=True):
@@ -35,8 +35,8 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
             example_data_dir = os.path.join(dir_path, 'examples/_example_data')
     except NameError:  # __file__ isn't available for iPython console sessions
         dir_path = os.getcwd()
-        example_data_dir = os.path.join(dir_path[:dir_path.find('pyTOD') + 5],
-                                        'examples/_example_data')  # assumes the top level repo name is pyTOD
+        example_data_dir = os.path.join(dir_path[:dir_path.find('pyDYNAM-O') + 5],
+                                        'examples/_example_data')  # assumes the top level repo name is pyDYNAM-O
 
     # EEG data and stages
     csv_data = pd.read_csv(example_data_dir + '/' + data_range + '_data.csv', header=None)
