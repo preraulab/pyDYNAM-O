@@ -214,7 +214,7 @@ def so_power_histogram(peak_times, peak_freqs, data, fs, artifacts, stages=None,
     norm_method : str, float, optional
         Normalization method for SO power ('percent','shift', and 'none'). The default is 'percent'.
     soph_stages : array_like, optional
-        Sleep stages to be included in the histogram. Default: [1,2,3].
+        Sleep stages to be included in the histogram. Default: [1, 2, 3].
     min_time_in_bin : int, optional
         Minimum time required in each SO power bin. The default is 1.
     verbose : bool, optional
@@ -363,7 +363,7 @@ def so_phase_histogram(peak_times, peak_freqs, data, fs, artifacts, stages=None,
     phase_window : list, optional
         The size and step of the SO-phase bins. Defaults to [(2 * np.pi) / 5, (2 * np.pi) / 100].
     soph_stages : array_like, optional
-        Sleep stages to be included in the histogram. Default: [1,2,3].
+        Sleep stages to be included in the histogram. Default: [1, 2, 3].
     min_time_in_bin : int, optional
         The minimum amount of time required in each SO-phase bin for it to be included in the histogram.
         Defaults to 0 minute.

@@ -175,13 +175,12 @@ def compute_sophs(data, fs, stages, stats_table, stages_include=None, norm_metho
         # noinspection PyUnboundLocalVariable
         print('Took ' + convert_hms(timeit.default_timer() - tic_art))
 
-    # Compute artifact peaks
-    art_interp = interp1d(np.arange(len(data)) / fs, artifacts, kind='nearest')
-    stats_table['artifact_time'] = art_interp(stats_table.peak_time).astype(bool)
-
     # Compute peak stage
     stage_interp = interp1d(stages.Time.values, stages.Stage.values, kind='previous', bounds_error=False, fill_value=0)
-    stats_table['stage'] = stage_interp(stats_table.peak_time)
+    peak_stages = stage_interp(stats_table.peak_time)
+    art_interp = interp1d(np.arange(len(data)) / fs, artifacts, kind='nearest')
+    peak_stages[art_interp(stats_table.peak_time).astype(bool)] = 6
+    stats_table['stage'] = peak_stages
 
     """ SOPH computation """
     if stages_include is None:
@@ -196,6 +195,7 @@ def compute_sophs(data, fs, stages, stats_table, stages_include=None, norm_metho
         so_power_histogram(stats_table.peak_time, stats_table.peak_frequency,
                            data, fs, artifacts, stages=stages, freq_range=[4, 25], freq_window=[1, 0.2],
                            soph_stages=stages_include, norm_method=norm_method, verbose=verbose)
+    stats_table['SOpower'] = peak_SOpower
 
     if verbose:
         # noinspection PyUnboundLocalVariable
@@ -209,7 +209,7 @@ def compute_sophs(data, fs, stages, stats_table, stages_include=None, norm_metho
         so_phase_histogram(stats_table.peak_time, stats_table.peak_frequency,
                            data, fs, artifacts, stages=stages, freq_range=[4, 25], freq_window=[1, 0.2],
                            soph_stages=stages_include, verbose=verbose)
-    stats_table['phase'] = peak_SOphase
+    stats_table['SOphase'] = peak_SOphase
 
     if verbose:
         # noinspection PyUnboundLocalVariable

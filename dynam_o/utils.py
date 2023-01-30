@@ -49,7 +49,7 @@ def pow2db(y):
 
     Returns
     -------
-    ydB : float or array
+    ydB : float or ndarray
         Power in dB.
 
     Notes
@@ -157,18 +157,18 @@ def arange_inc(start: float, stop: float, step: float) -> np.ndarray:
     return np.arange(start, stop, step)
 
 
-def create_bins(range_start: float, range_end: float, bin_width: float, bin_step: float, bin_method: str = 'full'):
+def create_bins(range_start, range_end, bin_width, bin_step, bin_method: str = 'full'):
     """Create bins allowing for various overlap and windowing schemes
 
     Parameters
     ----------
-    range_start : float
+    range_start : float or ndarray
         The start of the range of the bins.
-    range_end : float
+    range_end : float or ndarray
         The end of the range of the bins.
-    bin_width : float
+    bin_width : float or ndarray
         The width of the bins.
-    bin_step : float
+    bin_step : float or ndarray
         The step size between the bins.
     bin_method : str, optional
         The method for creating the bins.
@@ -624,7 +624,7 @@ def summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
 
     x = np.divide(stats_table['peak_time'], 3600)
     y = stats_table['peak_frequency']
-    c = stats_table['phase']
+    c = stats_table['SOphase']
 
     sp = ax3.scatter(x, y, peak_size, c, cmap='hsv')
     ax3.set_xlim([stimes[0] / 3500, stimes[-1] / 3600])
