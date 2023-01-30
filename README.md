@@ -84,15 +84,15 @@ Next, instead of looking at the waveforms in terms of fixed sleep stages (i.e., 
 
 ## Quick Start: Using the Toolbox
 
-An [example script](https://github.com/preraulab/DYNAM-O/blob/main_public/example_script.m) is provided in the repository that takes an excerpt of a single channel of [example sleep EEG data](https://github.com/preraulab/DYNAM-O/blob/main_public/example_data/example_data.mat) and runs the TF-peak detection watershed algorithm and the SO-power and SO-phase analyses, plotting the resulting hypnogram, spectrogram, TF-peak scatterplot, SO-power histogram, and SO-phase histogram (shown below). 
+An [example script](https://github.com/preraulab/pyDYNAM-O/blob/main_public/examples/run_example_data.py) is provided in the repository that takes an excerpt of a single channel of [example sleep EEG data](https://github.com/preraulab/pyDYNAM-O/blob/main_public/examples/_example_data/night_data.csv) and runs the TF-peak detection watershed algorithm and the SO-power and SO-phase analyses, plotting the resulting hypnogram, spectrogram, TF-peak scatterplot, SO-power histogram, and SO-phase histogram (shown below). 
 
-After installing the package, execute the example script on the command line:
+After installing the package, execute the example script in an interative python console:
 
-``` matlab
-> example_script;
+```console
+python -i run_example_data.py
 ```
 
-Once a parallel pool has started (if applicable), the following result should be generated: 
+The following figure should be generated: 
 
 <figure ><img src="https://prerau.bwh.harvard.edu/wp-content/uploads/2022/09/TFpeakDynamics_segment.png" alt="example segment" width="40%;">
 <figcaption><b>Output from the example segment of data provided with the toolbox.</b></figcaption></figure>
@@ -100,61 +100,47 @@ Once a parallel pool has started (if applicable), the following result should be
 
 This is the general output for the algorithm. On top is the hypnogram, EEG spectrogram, and the SO-power trace. In the middle is a scatterplot of the TF-peaks with x = time, y = frequency, size = peak prominence, and color = SO-phase. On the bottom are the SO-power and SO-phase histograms.
 
-Additionally, you should get a peak statistics table `stats_table` that has all of the detected peaks. The example script also creates `stats_table_SOPH`, which has the features for just the peaks used in the SO-power/phase histograms and is used for plotting. 
+Additionally, a peak statistics table `stats_table` contains features of all of the detected peaks. The example script also computes a `peak_selection_inds` variable, which provides the indices for just the peaks used in the SO-power/phase histograms and are used for plotting. 
 
 These tables have the following features for each peak:
 
 | **Feature**   | **Description**                                                  | **Units**       |
 |---------------|------------------------------------------------------------------|-----------------|
-| Area          | Time-frequency area of peak                                      | sec*Hz          |
-| BoundingBox   | Bounding Box: (top-left, time top-left, freq, width, height)         | (sec, Hz, sec, Hz) |
-| HeightData    | Height of all pixels within peak region                          | μV^2/Hz         |
-| Volume        | Time-frequency volume of peak in s*μV^2                          | sec*μV^2        |
-| Boundaries    | (time, frequency) of peak region boundary pixels                  | (seconds Hz)    |
-| PeakTime      | Peak time based on weighted centroid                             | sec             |
-| PeakFrequency | Peak frequency based on weighted centroid                        | Hz              |
-| Height        | Peak height above baseline                                       | μV^2/Hz         |
-| Duration      | Peak duration in seconds                                         | sec             |
-| Bandwidth     | Peak bandwidth in Hz                                             | Hz              |
-| SegmentNum    | Data segment number                                              | #               |
-| PeakStage     | Stage: 6 = Artifact, 5 = W, 4 = R, 3 = N1, 2 = N2, 1 = N3, 0 = Unknown | Stage #         |
+| volume        | Time-frequency volume of peak in s*μV^2                          | sec*μV^2        |
+| peak_time      | Peak time based on weighted centroid                             | sec             |
+| peak_frequency | Peak frequency based on weighted centroid                        | Hz              |
+| prominence        | Peak height above baseline                                       | μV^2/Hz         |
+| duration      | Peak duration in seconds                                         | sec             |
+| bandwidth     | Peak bandwidth in Hz                                             | Hz              |
+| stage     | Stage: 6 = Artifact, 5 = W, 4 = R, 3 = N1, 2 = N2, 1 = N3, 0 = Unknown | Stage #         |
 | SOpower       | Slow-oscillation power at peak time                              | dB              |
 | SOphase       | Slow-oscillation phase at peak time                              | rad             |
 
 
-You can also look at an overview of the resultant peak data by typing the following in the command prompt (omit the semicolon to see output):
-``` matlab
-summary(stats_table)
-```
 ### Changing the Preset Time Range
-Once the segment has succesfully completed, you can run the full night of data by changing the following line in the example script under `DATA SETTINGS`, such that the variable data_range changes from 'segment' to 'night'.
+Once the segment has succesfully completed, you can run the full night of data by changing the following line in the example script such that the variable `data_range` changes from 'segment' to 'night'.
 
-``` matlab
-%%Select 'segment' or 'night' for example data range
-data_range = 'night';
+```python
+data_range = 'segment'  # 'segment' vs. 'night'
 ```
 This should produce the following output:
-<figure><img src="https://prerau.bwh.harvard.edu/wp-content/uploads/2022/09/TFpeakDynamics.png" alt="full night example" style="width:40%"> <figcaption align = "center"><b>Output from the example full night of data provided with the toolbox.</b></figcaption></figure>
+<figure><img src="https://prerau.bwh.harvard.edu/wp-content/uploads/2022/09/TFpeakDynamics.png" alt="full night example" style="width:40%"> <figcaption><b>Output from the example full night of data provided with the toolbox.</b></figcaption></figure>
 <br/><br/>
 
 For more in-depth information and documentation on the Transient Oscillation Dynamics algorithms visit [the Prerau Lab website.](https://prerau.bwh.harvard.edu/DYNAM-O)
 <br/><br/>
 
 ### Changing the Quality Settings
-The following preset settings are available in our example script under `ALGORITHM SETTINGS`. As all data are different, it is essential to verify equivalency before relying on a speed-optimized solution other than precision.
+The following preset settings are available in our example script. As all data are different, it is essential to verify equivalency before relying on a speed-optimized solution other than precision.
 
 - “precision”:  Most accurate assessment of individual peak bounds and phase
 - “fast”: Faster approach, with accurate SO-power/phase histograms, minimal difference in phase
 - “draft”: Fastest approach. Good SO-power/phase histograms but with increased high-frequency peaks. Not recommended for assessment of individual peaks or precision phase estimation.
 
-Adjust these by selecting the appropriate and changing `quality_setting` from 'fast' to the appropriate quality setting.
+Adjust these by selecting the appropriate and changing `quality` from 'fast' to the appropriate quality setting.
 
-``` matlab
-%Quality settings for the algorithm:
-%   'precision': high res settings
-%   'fast': speed-up with minimal impact on results *suggested*
-%   'draft': faster speed-up with increased high frequency TF-peaks, *not recommended for analyzing SOphase*
-quality_setting = 'draft';
+```python
+quality = 'fast'  # Quality setting 'precision','fast', or 'draft'
 ```
 
 ### Changing the SO-power Normalization
@@ -166,76 +152,84 @@ There are also multiple normalization schemes that can be used for the SO-power.
 - 'percent': %SO-power. SO-power is scaled between 1st and 99th percentile of artifact free data during sleep (non-wake) times. This this only appropriate for within-night comparisons or when it is known all subjects reach the same stage of sleep.
 - 'proportional': The ratio of slow to total SO-power.
 
-To change this, change `SOpower_norm_method` to the appropriate value.
+To change this, change `norm_method` to the appropriate value.
 
-``` matlab
-%Normalization setting for computing SO-power histogram:
-%   'p5shift': Aligns at the 5th percentile, important for comparing across subjects
-%   'percent': Scales between 1st and 99th ptile. Use percent only if subjects all reach stage 3
-%   'proportion': ratio of SO-power to total power
-%   'none': No normalization. Raw dB power
-SOpower_norm_method = 'p5shift';
+```python
+norm_method = 'p5shift'  # Normalization of SO power 'percent','shift', or 'none'
+```
+
+## Load Saved Output
+By default, the example script loads previously computed TF peaks saved in a .csv file and only generates the SO-power and SO-phase histograms using the loaded `stats_table`. To run the watershed pipeline to obtain TF peaks from scratch, change this line:
+```python
+load_peaks = True  # Load from csv vs computing
 ```
 
 ## Saving Output
-You can save the image output by adjusting these lines: 
-``` matlab
-%Save figure image
-save_output_image = false;
-output_fname = [];
-```
-
-You can also save the raw data with by changing the value of `save_peak_properties`:
-``` matlab
-%Save peak property data
-%   0: Does not save anything
-%   1: Saves a subset of properties for each TFpeak 
-%   2: Saves all properties for all peaks (including rejected noise peaks) 
-save_peak_properties = 0;
+You can save the computed `stats_table` by adjusting this line: 
+```python
+save_peaks = False  # Save csv of peaks if computing
 ```
 
 ## Running Your Own Data
-The main function to run is runTFPeakSOHistograms.m
+The main function to run is `run_tfpeaks_soph()` implemented in pipelines.py
 
-``` matlab
-runTFPeakSOHistograms(data, Fs, stage_times, stage_vals, 'time_range', time_range, 'quality_setting', 
-                         quality_setting, 'SOpower_norm_method', SOpower_norm_method);
+``` python
+run_tfpeaks_soph(data, fs, stages, downsample=None, segment_dur=30, merge_thresh=8, max_merges=np.inf, trim_volume=0.8, norm_method='percent', plot_on=True):
 ```
 It uses the following basic inputs:
-``` matlab
-%       data (req):                [1xn] double - timeseries data to be analyzed
-%       Fs (req):                  double - sampling frequency of data (Hz)
-%       stage_times (req):         [1xm] double - timestamps of stage_vals
-%       stage_vals (req):          [1xm] double - sleep stage values at eaach time in
-%                                  stage_times. Note the staging convention: 0=unidentified, 1=N3,
-%                                  2=N2, 3=N1, 4=REM, 5=WAKE
-%       t_data (opt):              [1xn] double - timestamps for data. Default = (0:length(data)-1)/Fs;
-%       time_range (opt):          [1x2] double - section of EEG to use in analysis
-%                                  (seconds). Default = [0, max(t)]
-%       stages_include (opt):      [1xp] double - which stages to include in the SOpower and
-%                                  SOphase analyses. Default = [1,2,3,4]
-%       SOpower_norm_method (opt): character - normalization method for SO-power
+```python
+"""
+    Parameters
+    ----------
+    data : ndarray
+        The data to be analyzed.
+    fs : int
+        The sampling frequency of the data.
+    stages : pandas.DataFrame
+        The sleep stages of the data.
+    downsample : list, optional
+        The downsampling factor to be applied to the data. The default is None.
+    segment_dur : int, optional
+        The duration of each segment in seconds. The default is 30.
+    merge_thresh : int, optional
+        The minimum number of peaks that must be present in a segment for it to be considered a peak. The default is 8.
+    max_merges : int, optional
+        The maximum number of merges that can be performed on a segment. The default is np.inf.
+    trim_volume : float, optional
+        The fraction of the data to be trimmed from the beginning and end of each segment. The default is 0.8.
+    norm_method : str, float, optional
+        Normalization method for SO power ('percent','shift', and 'none'). The default is 'percent'.
+    plot_on : bool, optional
+        Whether to plot the summary figure. The default is True.
+"""
 ```
 
 The main outputs are:
-``` matlab
-%       stats_table:   table - feature data for each TFpeak
-%       SOpower_mat:    2D double - SO power histogram data
-%       SOphase_mat:  2D double - SO phase histogram data
-%       SOpower_bins:   1D double - SO power bin center values for dimension 1 of SOpow_mat
-%       SOphase_bins: 1D double - SO phase bin center values for dimension
-%                     1 of SOphase_mat
-%       freq_bins:    1D double - frequency bin center values for dimension 2
-%                     of SOpow_mat and SOphase_mat
-%       spect:        2D double - spectrogram of data
-%       stimes:       1D double - timestamp bin center values for dimension 2 of
-%                     spect
-%       sfreqs:       1D double - frequency bin center values for dimension 1 of
-%                     spect
-%       SOpower_norm: 1D double - normalized SO-power used to compute histogram
-%       SOpower_times:  1D double - SO-power times
-%       SOphase: 1D double - SO-phase used to compute histogram
-%       SOphase_times:  1D double - SO-phase times
+```python
+"""
+    Returns
+    -------
+    stats_table : pandas.DataFrame
+        A table containing the statistics.
+    SOpower_hist : ndarray
+        A histogram of the SO-power
+    SOphase_hist : ndarray
+        A histogram of the SO-phase
+    SOpower_cbins : ndarray
+        The SO-power bins used to compute the SO-power histogram.
+    SOphase_cbins : ndarray
+        The SO-phase bins used to compute the SO-phase histogram.
+    freq_cbins : ndarray
+        The frequency bins used to compute the SO-power/phase histograms.
+    SO_power_norm : ndarray
+        The normalized SO-power value.
+    SO_power_times : ndarray
+        The time points corresponding to each SO-power value.
+    SO_phase : ndarray
+        The SO-phase value.
+    SO_phase_times : ndarray
+        The time points corresponding to each SO-phase value.
+"""
 ```
 
 View the full documentation for all parameters and outputs.
@@ -306,23 +300,27 @@ This code is an optimized version of what was used in Stokes et. al., 2022. The 
 * During the merging process, the adjacency list is now stored as unidirectional graph (instead of bidirectional), and only the larger of the merging weights between two regions is stored during iterative merge weight computation. 
 
 ## Repository Structure
-The contents of the "toolbox" folder is organized as follows, with key functions:
+The contents of the "package" folder is organized as follows, with key functions:
 
 ```
-.TOOLBOX ROOT
-├── example_script.m:         Quick start example, computes the SO-Power and SO-Phase histograms, and plots a summary 
-│                                 figure. Uses example data contained in example_data folder.
-├── runTFPeakSOHistograms.m : Main quick start function that calls all of the TF-peak extraction and SOPH functions
-│   
-├── example_data/  CONTAINS EXAMPLE DATA
-└── toolbox/       MAIN TOOLBOX FOLDER  
-    ├── SOphase_filters/   
-    │         - SOphase_filters.mat: File containing precomputed digital filters used in the SO-Phase calculation.  
-    ├── SOpowphase_functions/
-    │         - SOpowerphaseHistogram.m: Compute SO-power and SO-phase histograms 
-    ├── TFpeak_functions/
-    │          - extractTFpeaks.m: Top level function to run the watershed pipeline on a given spectrogram,
-    │              including baseline removal, image segmentation, peak merging, trimming, and statistics.  
-    └── helper_functions/
-                - Contains various utility functions for spectral estimation and plotting
+.REPO_ROOT
+├── examples/  CONTAINS EXAMPLE DATA AND EXAMPLE SCRIPT
+│   ├── run_example_data.py:         Quick start example, computes the SO-Power and SO-Phase histograms, and 
+│   │                                 plots a summary figure. Uses example data contained in example_data folder.
+│   └── _example_data/:              Example data files and saved pre-computed peaks          
+└── dynam_o/   MAIN PACKAGE FOLDER  
+    ├── multitaper.py
+    │         - Multitaper spetrogram computation  
+    ├── SOPH.py
+    │         - Functions used to compute SO-power and SO-phase histograms 
+    ├── TFpeaks.py
+    │         - Functions used to run the watershed pipeline on a given spectrogram,
+    │           including baseline removal, image segmentation, peak merging, trimming, and statistics.  
+    ├── utils.py
+    │         - Contains various utility functions for spectral estimation and plotting
+    └── pipelines.py
+              - compute_tfpeaks(): Top level function to run the watershed pipeline to extract TF peaks
+              - compute_sophs(): Top level function to obtain SO-power and SO-phase histograms
+              - run_tfpeaks_soph(): Main function to use for analyzing new data; 
+                                    calls compute_tfpeaks() and compute_sophs() internally. 
 ```

@@ -624,7 +624,7 @@ def summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
 
     x = np.divide(stats_table['peak_time'], 3600)
     y = stats_table['peak_frequency']
-    c = stats_table['phase']
+    c = stats_table['SOphase']
 
     sp = ax3.scatter(x, y, peak_size, c, cmap='hsv')
     ax3.set_xlim([stimes[0] / 3500, stimes[-1] / 3600])

@@ -5,7 +5,7 @@ from dynam_o.utils import summary_plot
 from dynam_o.pipelines import compute_sophs, run_tfpeaks_soph
 
 
-def run_example_data(data_range='segment', quality='fast', save_peaks=False, load_peaks=True):
+def run_example_data(data_range='segment', quality='fast', norm_method='percent', load_peaks=True, save_peaks=False):
     """Example data script
 
     Parameters
@@ -14,10 +14,12 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
         The range of data to use. Can be 'segment' or 'night'. Default: 'segment'
     quality : str, optional
         The quality of the TF-peak detection. Can be 'paper', 'precision', 'fast', or 'draft'. Default: 'fast'
-    save_peaks : bool, optional
-        Whether to save the TF-peak stats table to file. Default: False
+    norm_method : str, float, optional
+        Normalization method for SO power ('percent','shift', and 'none'). Default: 'percent'
     load_peaks : bool, optional
         Whether to load the TF-peak stats table from file. Default: True
+    save_peaks : bool, optional
+        Whether to save the TF-peak stats table to file. Default: False
 
     Returns
     -------
@@ -72,7 +74,7 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
         max_merges = np.inf  # Set limit on number merges if needs be
 
         stats_table, *_ = run_tfpeaks_soph(data, fs, stages, downsample, segment_dur,
-                                           merge_thresh, max_merges, trim_volume, norm_method='p5shift')
+                                           merge_thresh, max_merges, trim_volume, norm_method=norm_method)
 
         if save_peaks:
             print('Writing stats_table to file...', end=" ")
@@ -84,7 +86,7 @@ def run_example_data(data_range='segment', quality='fast', save_peaks=False, loa
 
         SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, peak_selection_inds,\
             SO_power_norm, SO_power_times, SO_power_label, *_ \
-            = compute_sophs(data, fs, stages, stats_table, norm_method='p5shift')
+            = compute_sophs(data, fs, stages, stats_table, norm_method=norm_method)
 
         summary_plot(data, fs, stages, stats_table[peak_selection_inds], SOpower_hist, SOpower_cbins,
                      SO_power_norm, SO_power_times, SO_power_label, SOphase_hist, freq_cbins)
@@ -95,13 +97,14 @@ def main():
     Evoked when executing the .py file directly.
     Adjust parameters here to analyze the example data with different settings.
     """
-    data_range = 'night'  # 'segment' vs. 'night'
+    data_range = 'segment'  # 'segment' vs. 'night'
     quality = 'fast'  # Quality setting 'precision','fast', or 'draft'
-    save_peaks = False  # Save csv of peaks if computing
+    norm_method = 'p5shift'  # Normalization of SO power 'percent','shift', or 'none'
     load_peaks = True  # Load from csv vs computing
+    save_peaks = False  # Save csv of peaks if computing
 
     # Run example data
-    run_example_data(data_range, quality, save_peaks, load_peaks)
+    run_example_data(data_range, quality, norm_method, load_peaks, save_peaks)
 
 
 if __name__ == '__main__':
