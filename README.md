@@ -4,7 +4,7 @@
 
 ## pyDYNAM-O: The Dynamic Oscillation Toolbox for Python - Prerau Laboratory ([sleepEEG.org](https://prerau.bwh.harvard.edu/))
 
-#### This repository contains the updated and optimized PYTHON package code for extracting time-frequency peaks from EEG data and creating slow-oscillation power and phase histograms. [The MATLAB version of DYNAM-O is available here.](https://github.com/preraulab/pyDYNAM-O/)
+#### This repository contains the updated and optimized PYTHON package code for extracting time-frequency peaks from EEG data and creating slow-oscillation power and phase histograms. [The MATLAB version of DYNAM-O is available here.](https://github.com/preraulab/DYNAM-O/)
 
 ## Citations
 ### Paper and Toolbox
