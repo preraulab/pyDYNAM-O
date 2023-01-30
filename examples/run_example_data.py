@@ -49,6 +49,9 @@ def run_example_data(data_range='segment', quality='fast', norm_method='percent'
     # Sampling frequency of the example data
     fs = 100
 
+    if save_peaks:
+        assert ~load_peaks, 'Set load_peaks=False in order to compute TF-peaks and save stats_table.'
+
     if not load_peaks:
         # DETECT TF-PEAKS
         if quality == 'paper':

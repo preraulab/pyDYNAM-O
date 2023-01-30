@@ -94,13 +94,13 @@ python -i run_example_data.py
 
 The following figure should be generated: 
 
-<figure ><img src="https://prerau.bwh.harvard.edu/wp-content/uploads/2022/09/TFpeakDynamics_segment.png" alt="example segment" width="40%;">
+<figure ><img src="https://prerau.bwh.harvard.edu/wp-content/uploads/2023/01/TFpeakDynamics_segment_python.png" alt="example segment" width="40%;">
 <figcaption><b>Output from the example segment of data provided with the toolbox.</b></figcaption></figure>
 <br/><br/>
 
 This is the general output for the algorithm. On top is the hypnogram, EEG spectrogram, and the SO-power trace. In the middle is a scatterplot of the TF-peaks with x = time, y = frequency, size = peak prominence, and color = SO-phase. On the bottom are the SO-power and SO-phase histograms.
 
-Additionally, a peak statistics table `stats_table` contains features of all of the detected peaks. The example script also computes a `peak_selection_inds` variable, which provides the indices for just the peaks used in the SO-power/phase histograms and are used for plotting. 
+Additionally, a peak statistics table `stats_table` contains features of all of the detected peaks. The example script also computes a `peak_selection_inds` variable, which provides the indices for just the peaks used in the SO-power/phase histograms and plotting. 
 
 These tables have the following features for each peak:
 
@@ -124,7 +124,7 @@ Once the segment has succesfully completed, you can run the full night of data b
 data_range = 'segment'  # 'segment' vs. 'night'
 ```
 This should produce the following output:
-<figure><img src="https://prerau.bwh.harvard.edu/wp-content/uploads/2022/09/TFpeakDynamics.png" alt="full night example" style="width:40%"> <figcaption><b>Output from the example full night of data provided with the toolbox.</b></figcaption></figure>
+<figure><img src="https://prerau.bwh.harvard.edu/wp-content/uploads/2023/01/TFpeakDynamics_python.png" alt="full night example" style="width:40%"> <figcaption><b>Output from the example full night of data provided with the toolbox.</b></figcaption></figure>
 <br/><br/>
 
 For more in-depth information and documentation on the Transient Oscillation Dynamics algorithms visit [the Prerau Lab website.](https://prerau.bwh.harvard.edu/DYNAM-O)
@@ -158,25 +158,25 @@ To change this, change `norm_method` to the appropriate value.
 norm_method = 'p5shift'  # Normalization of SO power 'percent','shift', or 'none'
 ```
 
-## Load Saved Output
-By default, the example script loads previously computed TF peaks saved in a .csv file and only generates the SO-power and SO-phase histograms using the loaded `stats_table`. To run the watershed pipeline to obtain TF peaks from scratch, change this line:
+### Load Saved Output
+By default, the example script loads previously computed TF-peaks saved in a .csv file and only generates the SO-power and SO-phase histograms using the loaded `stats_table`. To run the watershed pipeline to obtain TF-peaks from scratch, change this line:
 ```python
 load_peaks = True  # Load from csv vs computing
 ```
 
 ## Saving Output
-You can save the computed `stats_table` by adjusting this line: 
+You can save the computed `stats_table` from example data by adjusting this line: 
 ```python
 save_peaks = False  # Save csv of peaks if computing
 ```
 
 ## Running Your Own Data
-The main function to run is `run_tfpeaks_soph()` implemented in pipelines.py
+The main function to use is `run_tfpeaks_soph()` implemented in pipelines.py
 
 ``` python
-run_tfpeaks_soph(data, fs, stages, downsample=None, segment_dur=30, merge_thresh=8, max_merges=np.inf, trim_volume=0.8, norm_method='percent', plot_on=True):
+def run_tfpeaks_soph(data, fs, stages, downsample=None, segment_dur=30, merge_thresh=8, max_merges=np.inf, trim_volume=0.8, norm_method='percent', plot_on=True):
 ```
-It uses the following basic inputs:
+It uses the following inputs:
 ```python
 """
     Parameters
@@ -204,7 +204,7 @@ It uses the following basic inputs:
 """
 ```
 
-The main outputs are:
+The outputs are:
 ```python
 """
     Returns
@@ -231,8 +231,6 @@ The main outputs are:
         The time points corresponding to each SO-phase value.
 """
 ```
-
-View the full documentation for all parameters and outputs.
 
 # Documentation and Tutorials
 
@@ -319,7 +317,7 @@ The contents of the "package" folder is organized as follows, with key functions
     ├── utils.py
     │         - Contains various utility functions for spectral estimation and plotting
     └── pipelines.py
-              - compute_tfpeaks(): Top level function to run the watershed pipeline to extract TF peaks
+              - compute_tfpeaks(): Top level function to run the watershed pipeline to extract TF-peaks
               - compute_sophs(): Top level function to obtain SO-power and SO-phase histograms
               - run_tfpeaks_soph(): Main function to use for analyzing new data; 
                                     calls compute_tfpeaks() and compute_sophs() internally. 
