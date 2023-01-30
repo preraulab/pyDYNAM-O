@@ -602,7 +602,7 @@ def summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
     extent = stimes[0] / 3600, stimes[-1] / 3600, frequency_range[1], frequency_range[0]
     plt.axes(ax1)
     im = ax1.imshow(pow2db(spect), extent=extent, aspect='auto')
-    clims = np.percentile(pow2db(spect[~np.isnan(spect)]), [5, 98])
+    clims = np.nanpercentile(pow2db(spect), [5, 98])
     im.set_clim(clims[0], clims[1])
     ax1.set_ylabel('Frequency (Hz)')
     ax1.invert_yaxis()
@@ -618,7 +618,7 @@ def summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
 
     # Plot the scatter plot
     peak_size = stats_table['volume'] / 200
-    pmax = np.percentile(list(peak_size), 95)  # Don't let the size get too big
+    pmax = np.nanpercentile(list(peak_size), 95)  # Don't let the size get too big
     peak_size[peak_size > pmax] = 0
     peak_size = np.square(peak_size)
 
@@ -648,7 +648,7 @@ def summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
     extent = SOpower_cbins[0], SOpower_cbins[-1], freq_cbins[-1], freq_cbins[0]
     plt.axes(ax4)
     im = ax4.imshow(SOpower_hist, extent=extent, aspect='auto')
-    clims = np.percentile(SOpower_hist, [5, 98])
+    clims = np.nanpercentile(SOpower_hist, [5, 98])
     im.set_clim(clims[0], clims[1])
     ax4.set_ylabel('Frequency (Hz)')
     ax4.invert_yaxis()
@@ -662,7 +662,7 @@ def summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
     extent = -np.pi, np.pi, freq_cbins[-1], freq_cbins[0]
     plt.axes(ax5)
     im = ax5.imshow(SOphase_hist, extent=extent, aspect='auto')
-    clims = np.percentile(SOphase_hist, [5, 98])
+    clims = np.nanpercentile(SOphase_hist, [5, 98])
     im.set_clim(clims[0], clims[1])
     ax5.set_ylabel('Frequency (Hz)')
     ax5.invert_yaxis()

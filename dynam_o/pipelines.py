@@ -120,7 +120,7 @@ def compute_tfpeaks(data=None, fs=None, downsample=None, segment_dur=30, merge_t
     return stats_table
 
 
-def compute_sophs(data, fs, stages, stats_table, norm_method='percent', verbose=True):
+def compute_sophs(data, fs, stages, stats_table, stages_include=None, norm_method='percent', verbose=True):
     """Compute SO-power and SO-phase histograms for detected peaks
 
     Parameters
@@ -133,6 +133,8 @@ def compute_sophs(data, fs, stages, stats_table, norm_method='percent', verbose=
         Time/Stage dataframe
     stats_table : pandas.DataFrame
         Peak statistics table
+    stages_include : array_like
+        A list of stages within which peaks are included in the histograms
     norm_method : str, float, optional
         Normalization method for SO power ('percent','shift', and 'none'). The default is 'percent'.
     verbose : bool, optional
@@ -150,6 +152,8 @@ def compute_sophs(data, fs, stages, stats_table, norm_method='percent', verbose=
         Phase bins for SO-phase histogram
     freq_cbins : numpy.ndarray
         Frequency bins for SO-power/phase histograms
+    peak_selection_inds : boolean array
+        Indices of peaks included in the histograms
     SO_power_norm : numpy.ndarray
         Normalized SO-power for each peak
     SO_power_times : numpy.ndarray
@@ -179,18 +183,20 @@ def compute_sophs(data, fs, stages, stats_table, norm_method='percent', verbose=
     stage_interp = interp1d(stages.Time.values, stages.Stage.values, kind='previous', bounds_error=False, fill_value=0)
     stats_table['stage'] = stage_interp(stats_table.peak_time)
 
-    # # Only consider non-Wake peaks at non-artifact times
-    # stats_table = stats_table.query('stage<5 and not artifact_time')
-
     """ SOPH computation """
+    if stages_include is None:
+        stages_include = [1, 2, 3, 4]
+
     if verbose:
         print('Computing SO-Power Histogram...', end=" ")
         tic_SOpower = timeit.default_timer()
 
-    SOpower_hist, freq_cbins, SOpower_cbins, peak_SOpower, SO_power_norm, SO_power_times, SO_power_label = \
+    SOpower_hist, freq_cbins, SOpower_cbins, peak_SOpower, peak_inds_SOpower, \
+        SO_power_norm, SO_power_times, SO_power_label = \
         so_power_histogram(stats_table.peak_time, stats_table.peak_frequency,
-                           data, fs, artifacts, freq_range=[4, 25], freq_window=[1, 0.2],
-                           norm_method=norm_method, verbose=verbose)
+                           data, fs, artifacts, stages=stages, freq_range=[4, 25], freq_window=[1, 0.2],
+                           soph_stages=stages_include, norm_method=norm_method, verbose=verbose)
+
     if verbose:
         # noinspection PyUnboundLocalVariable
         print('Took ' + convert_hms(timeit.default_timer() - tic_SOpower))
@@ -198,16 +204,22 @@ def compute_sophs(data, fs, stages, stats_table, norm_method='percent', verbose=
         print('Computing SO-Phase Histogram...', end=" ")
         tic_SOphase = timeit.default_timer()
 
-    SOphase_hist, _, SOphase_cbins, peak_SOphase, SO_phase, SO_phase_times = \
+    SOphase_hist, _, SOphase_cbins, peak_SOphase, peak_inds_SOphase, \
+        SO_phase, SO_phase_times = \
         so_phase_histogram(stats_table.peak_time, stats_table.peak_frequency,
-                           data, fs, freq_range=[4, 25], freq_window=[1, 0.2], verbose=verbose)
+                           data, fs, artifacts, stages=stages, freq_range=[4, 25], freq_window=[1, 0.2],
+                           soph_stages=stages_include, verbose=verbose)
     stats_table['phase'] = peak_SOphase
 
     if verbose:
         # noinspection PyUnboundLocalVariable
         print('Took ' + convert_hms(timeit.default_timer() - tic_SOphase))
 
-    return SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, \
+    # Ensure the same number of peaks are included in the SOpower and SOphase histograms
+    assert np.all(peak_inds_SOpower == peak_inds_SOphase), 'SOpower and SOphase histograms included different TF peaks.'
+    peak_selection_inds = peak_inds_SOpower
+
+    return SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, peak_selection_inds,\
         SO_power_norm, SO_power_times, SO_power_label, SO_phase, SO_phase_times
 
 
@@ -266,13 +278,13 @@ def run_tfpeaks_soph(data, fs, stages, downsample=None, segment_dur=30, merge_th
     stats_table = compute_tfpeaks(data, fs, downsample, segment_dur, merge_thresh, max_merges, trim_volume)
 
     # Compute SO-power and SO-phase Histograms
-    SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, \
-        SO_power_norm, SO_power_times, SO_power_label, \
-        SO_phase, SO_phase_times = compute_sophs(data, fs, stages, stats_table, norm_method=norm_method)
+    SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, peak_selection_inds,\
+        SO_power_norm, SO_power_times, SO_power_label, SO_phase, SO_phase_times = \
+        compute_sophs(data, fs, stages, stats_table, norm_method=norm_method)
 
     # Create summary plot if selected
     if plot_on:
-        summary_plot(data, fs, stages, stats_table, SOpower_hist, SOpower_cbins,
+        summary_plot(data, fs, stages, stats_table[peak_selection_inds], SOpower_hist, SOpower_cbins,
                      SO_power_norm, SO_power_times, SO_power_label, SOphase_hist, freq_cbins)
 
     return stats_table, SOpower_hist, SOphase_hist, SOpower_cbins, SOphase_cbins, freq_cbins, \
