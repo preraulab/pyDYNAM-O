@@ -46,7 +46,7 @@ The paper is available open access at https://doi.org/10.1093/sleep/zsac223
     [How to: Configure an existing conda environment](https://www.jetbrains.com/help/pycharm/conda-support-creating-conda-virtual-environment.html)
 --- 
 ## Tutorial
-A full description of the toolbox and tutorial [can be found on the Prerau Lab site](https://prerau.bwh.harvard.edu/DYNAM-O/)
+A full description of the toolbox and tutorial [can be found on the Prerau Lab site](https://prerau.bwh.harvard.edu/DYNAM-O/).
 
 ## Table of Contents
 * [Overview](#overview)
